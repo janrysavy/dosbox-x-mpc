@@ -9,6 +9,8 @@
 
 namespace dosbox_agent {
 
+struct ProgramLoadInfo;
+
 class AgentServer {
 public:
     class Impl;
@@ -50,6 +52,9 @@ private:
                                 std::uint16_t psp,
                                 std::uint8_t exit_code,
                                 bool tsr);
+    static void OnProgramLoaded(const std::shared_ptr<Impl>& impl,
+                                std::uint64_t generation,
+                                const ProgramLoadInfo& info);
 
     std::shared_ptr<Impl> impl;
 };

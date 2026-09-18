@@ -181,11 +181,30 @@ TEST(AgentProtocol, ReportsBuildCapabilitiesAndLimits)
     EXPECT_NE(std::string::npos, response.find("\"physical\""));
     EXPECT_NE(std::string::npos, response.find("\"max_memory_read_bytes\":64"));
     EXPECT_NE(std::string::npos, response.find("\"snapshot\":true"));
+    EXPECT_NE(std::string::npos, response.find("\"dos\":{\"loader_metadata\":true,\"memory_map\":true}"));
     EXPECT_NE(std::string::npos, response.find("\"exact_access_requires_normal_core\":true"));
     EXPECT_NE(std::string::npos, response.find("\"condition_registers\":[\"eax\""));
     EXPECT_NE(std::string::npos, response.find("\"condition_operators\":[\"eq\",\"ne\"]"));
     EXPECT_NE(std::string::npos, response.find("\"conditional_kinds\":[\"execution\"]"));
     EXPECT_NE(std::string::npos, response.find("\"hit_filter\":true"));
+}
+
+TEST(AgentDos, ReturnsLoaderMetadataAndTypedMcbOwnership)
+{
+    dosbox_agent::AgentServer server;
+    std::string error;
+    ASSERT_TRUE(server.StartForTest(MakeTestConfig(), &error)) << error;
+    StartFixtureSession(&server);
+
+    const std::string response = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"dos-map\",\"method\":\"dos.memory_map\","
+            "\"params\":{\"session_id\":\"ses-1\"}}");
+    EXPECT_NE(std::string::npos, response.find("\"current_psp\":\"0x1000\""));
+    EXPECT_NE(std::string::npos, response.find("\"load_segment\":\"0x1010\""));
+    EXPECT_NE(std::string::npos, response.find("\"format\":\"com\""));
+    EXPECT_NE(std::string::npos, response.find("\"image_bytes\":25"));
+    EXPECT_NE(std::string::npos, response.find("\"target_owned\":true"));
+    EXPECT_NE(std::string::npos, response.find("\"environment_segment\":\"0x0F00\""));
 }
 
 TEST(AgentProtocol, ValidatesExactWatchpointKindsAndLengthsBeforeDispatch)

@@ -7,6 +7,7 @@
 #include "cpu.h"
 #include "debug.h"
 #include "dos_inc.h"
+#include "dos_mcb.h"
 #include "mem.h"
 #include "paging.h"
 #include "pic.h"
@@ -347,7 +348,9 @@ bool DebuggerAdapter::StartTargetAtEntry(const std::string& command,
     // for every session is not idempotent: the DOS command reports an existing
     // drive through its normal output path and can leave a stale DOS error code.
     if (Drives[2] == NULL) {
-        std::string mount_command = "MOUNT C \"" + workdir + "\"";
+        // MOUNT.COM is an internal program at this fixed Z: path.  Using the
+        // short name races the shell's AUTOEXEC initialization of PATH.
+        std::string mount_command = "Z:\\SYSTEM\\MOUNT.COM C \"" + workdir + "\"";
         first_shell->DoCommand(&mount_command[0]);
         if (Drives[2] == NULL) {
             if (error != NULL)
@@ -791,6 +794,63 @@ bool DebuggerAdapter::ConsumeLastWatchpointHit(WatchpointHit* hit) const
     return true;
 #else
     (void)hit;
+    return false;
+#endif
+}
+
+bool DebuggerAdapter::GetDosMemoryMap(DosMemoryMap* memory_map,
+                                      std::string* error) const
+{
+#if C_DEBUG
+    if (!RequireEmulationThread(error) || memory_map == NULL)
+        return false;
+    memory_map->current_psp = dos.psp();
+    memory_map->first_mcb = dos.firstMCB;
+    memory_map->blocks.clear();
+    std::uint16_t segment = dos.firstMCB;
+    if (segment == 0) {
+        if (error != NULL)
+            *error = "DOS MCB chain is unavailable";
+        return false;
+    }
+    for (std::size_t count = 0; count < 4096; ++count) {
+        DOS_MCB mcb(segment);
+        if (!mcb.isValid()) {
+            if (error != NULL)
+                *error = "DOS MCB chain contains an invalid block";
+            return false;
+        }
+        DosMemoryBlock block;
+        block.mcb_segment = segment;
+        block.data_segment = static_cast<std::uint16_t>(segment + 1u);
+        block.paragraphs = mcb.GetSize();
+        block.owner_psp = mcb.GetPSPSeg();
+        block.name = Trim(mcb.GetFileName());
+        block.last = mcb.isLastMCB();
+        block.process = block.owner_psp == block.data_segment;
+        if (block.process) {
+            DOS_PSP psp(block.owner_psp);
+            block.parent_psp = psp.GetParent();
+            block.environment_segment = psp.GetEnvironment();
+        }
+        memory_map->blocks.push_back(block);
+        if (block.last)
+            return true;
+        const std::uint32_t next = static_cast<std::uint32_t>(segment) +
+                                   block.paragraphs + 1u;
+        if (next > 0xffffu || next <= segment) {
+            if (error != NULL)
+                *error = "DOS MCB chain does not advance";
+            return false;
+        }
+        segment = static_cast<std::uint16_t>(next);
+    }
+    if (error != NULL)
+        *error = "DOS MCB chain exceeds the safety limit";
+    return false;
+#else
+    (void)memory_map;
+    (void)error;
     return false;
 #endif
 }

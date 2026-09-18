@@ -131,6 +131,7 @@ namespace {
 std::mutex debugger_stop_listener_mutex;
 DebuggerStopListener debugger_stop_listener;
 ProgramExitListener program_exit_listener;
+ProgramLoadListener program_load_listener;
 
 } // namespace
 
@@ -149,6 +150,7 @@ void AGENT_BridgeShutdown()
     AGENT_EmulationQueue().Shutdown();
     AGENT_SetDebuggerStopListener(DebuggerStopListener());
     AGENT_SetProgramExitListener(ProgramExitListener());
+    AGENT_SetProgramLoadListener(ProgramLoadListener());
 }
 
 void AGENT_SetDebuggerStopListener(DebuggerStopListener listener)
@@ -186,6 +188,23 @@ void AGENT_NotifyProgramExited(const std::uint16_t psp,
     }
     if (listener)
         listener(psp, exit_code, tsr);
+}
+
+void AGENT_SetProgramLoadListener(ProgramLoadListener listener)
+{
+    std::lock_guard<std::mutex> lock(debugger_stop_listener_mutex);
+    program_load_listener = std::move(listener);
+}
+
+void AGENT_NotifyProgramLoaded(const ProgramLoadInfo& info)
+{
+    ProgramLoadListener listener;
+    {
+        std::lock_guard<std::mutex> lock(debugger_stop_listener_mutex);
+        listener = program_load_listener;
+    }
+    if (listener)
+        listener(info);
 }
 
 bool AGENT_RunQueueSelfTest(std::string* error)

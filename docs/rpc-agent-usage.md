@@ -173,6 +173,7 @@ with AgentClient.from_config(config_path) as agent:
 - `RegisterSnapshot`：`general`、`segments`、`instruction_pointer`、`flags`、`cpu_mode`。
 - `MemoryRead`：`address`、`data: bytes`、`sha256`、`state_revision`。
 - `MemoryWrite`：写入前后 SHA-256 和 `byte_count`。
+- `DosMemoryMap`: exact loader metadata plus typed DOS MCB ownership.
 - `Breakpoint`、`Operation`、`WaitResult`、`OutputPage`、`TracePage`。
 
 ### Atomic video snapshots
@@ -202,6 +203,38 @@ assert len(snapshot.fonts.data) == 2 * 256 * snapshot.font_glyph_stride
 print(snapshot.frame.width, snapshot.frame.height, snapshot.frame.block.sha256)
 ```
 
+### DOS loader and allocation map
+
+`AgentClient.get_dos_memory_map(session.id)` returns facts captured inside
+`DOS_Execute` together with a live walk of DOS's MCB chain. The target metadata
+contains the PSP, actual load segment, COM/MZ format, number of file-image bytes
+actually read by the loader, relocated entry point, and initial stack. Do not
+infer an MZ load segment from the PSP or recompute the loaded byte count by
+rounding the MZ page count; the final MZ page can be partial.
+
+Each `DosMemoryBlock` reports its MCB and data segments, paragraph and byte
+counts, owner PSP, DOS name, last-block flag, and whether it is a process block.
+Process blocks also report their parent PSP and environment segment.
+`target_owned` identifies all blocks owned by the launched target, including its
+environment block.
+
+```python
+dos_map = agent.get_dos_memory_map(session.id)
+print(dos_map.target.psp, dos_map.target.load_segment)
+print(dos_map.target.entry_segment, dos_map.target.entry_offset)
+
+process = next(
+    block for block in dos_map.blocks
+    if block.target_owned and block.process
+)
+assert process.data_segment == dos_map.target.psp
+assert process.bytes == process.paragraphs * 16
+```
+
+The call is stopped-state only. The MCB walk executes on the emulation thread,
+validates every header and forward link, and fails instead of returning a
+partial map when the chain is invalid.
+
 ## 6. 标准动态逆向流程
 
 ### 6.1 检查能力
@@ -216,6 +249,7 @@ if not capabilities["debugger"]:
 trace_enabled = capabilities["trace"]["cpu"] is True
 memory_breakpoint_enabled = capabilities["breakpoints"]["memory_change"] is True
 exact_watchpoints_enabled = capabilities["breakpoints"]["memory_access"] is True
+dos_mapping_enabled = capabilities["dos"]["memory_map"] is True
 ```
 
 不要把 capability 缺失当成普通断点或空 trace；server 会返回 `CapabilityUnavailableError`。

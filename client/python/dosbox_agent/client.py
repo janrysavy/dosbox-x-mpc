@@ -19,6 +19,9 @@ from .models import (
     BreakpointCondition,
     BreakpointHitFilter,
     DiagnosticCommandResult,
+    DosMemoryBlock,
+    DosMemoryMap,
+    DosProgramLoad,
     MemoryAddress,
     MemoryRead,
     MemoryWrite,
@@ -291,6 +294,19 @@ class AgentClient:
 
     def get_registers(self, session_id: str, request_id: str | None = None) -> RegisterSnapshot:
         return _registers(self.call("state.get_registers", {"session_id": session_id}, request_id))
+
+    def get_dos_memory_map(self, session_id: str, request_id: str | None = None) -> DosMemoryMap:
+        result = self.call("dos.memory_map", {"session_id": session_id}, request_id)
+        blocks = result.get("blocks")
+        if not isinstance(blocks, list):
+            raise AgentProtocolError("dos.memory_map response is missing blocks")
+        return DosMemoryMap(
+            current_psp=_string(result, "current_psp"),
+            first_mcb=_string(result, "first_mcb"),
+            target=DosProgramLoad.from_rpc(_object(result, "target")),
+            blocks=tuple(DosMemoryBlock.from_rpc(_object_value(block, "DOS memory block"))
+                         for block in blocks),
+        )
 
     def capture_video(self, session_id: str, request_id: str | None = None) -> VideoSnapshot:
         result = self.call("video.snapshot", {"session_id": session_id}, request_id)

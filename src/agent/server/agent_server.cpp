@@ -449,6 +449,7 @@ static bool IsKnownMethod(const std::string& method)
            method == "execution.step" ||
            method == "execution.wait" ||
            method == "state.get_registers" ||
+           method == "dos.memory_map" ||
            method == "video.snapshot" ||
            method == "video.snapshot.read" ||
            method == "memory.read" ||
@@ -521,6 +522,7 @@ public:
         MemoryAccessError access_error;
         RegisterSnapshot registers;
         VideoSnapshot video_snapshot;
+        DosMemoryMap dos_memory_map;
         std::vector<std::uint8_t> data;
         NativeBreakpoint breakpoint;
         std::string raw_output;
@@ -556,6 +558,8 @@ public:
         SessionState state = SessionState::Starting;
         std::uint16_t target_psp = 0;
         bool has_target_psp = false;
+        ProgramLoadInfo target_load;
+        bool has_target_load = false;
         bool termination_by_agent = false;
         std::uint16_t exit_psp = 0;
         std::uint8_t exit_code = 0;
@@ -656,6 +660,7 @@ public:
     virtual bool DeleteBreakpoint(const NativeBreakpoint& breakpoint, std::string* error) const = 0;
     virtual bool ConsumeLastBreakpointHit(BreakpointHit* hit) const = 0;
     virtual bool ConsumeLastWatchpointHit(WatchpointHit* hit) const = 0;
+    virtual bool GetDosMemoryMap(DosMemoryMap* memory_map, std::string* error) const = 0;
     virtual bool ExecuteDiagnosticCommand(const std::string& command,
                                           std::string* raw_output,
                                           std::string* error) const = 0;
@@ -700,6 +705,7 @@ public:
     AGENT_RUNTIME_FORWARD(DeleteBreakpoint, bool DeleteBreakpoint(const NativeBreakpoint& breakpoint, std::string* error) const, (breakpoint, error))
     AGENT_RUNTIME_FORWARD(ConsumeLastBreakpointHit, bool ConsumeLastBreakpointHit(BreakpointHit* hit) const, (hit))
     AGENT_RUNTIME_FORWARD(ConsumeLastWatchpointHit, bool ConsumeLastWatchpointHit(WatchpointHit* hit) const, (hit))
+    AGENT_RUNTIME_FORWARD(GetDosMemoryMap, bool GetDosMemoryMap(DosMemoryMap* memory_map, std::string* error) const, (memory_map, error))
     AGENT_RUNTIME_FORWARD(ExecuteDiagnosticCommand, bool ExecuteDiagnosticCommand(const std::string& command, std::string* raw_output, std::string* error) const, (command, raw_output, error))
     AGENT_RUNTIME_FORWARD(StartTrace, bool StartTrace(const std::string& detail, std::uint32_t instruction_count, std::string* error) const, (detail, instruction_count, error))
     AGENT_RUNTIME_FORWARD(ReadTrace, bool ReadTrace(std::vector<TraceSample>* samples, bool* active, std::string* error) const, (samples, active, error))
@@ -734,11 +740,22 @@ public:
         return true;
     }
 
-    bool StartTargetAtEntry(const std::string&,
+    bool StartTargetAtEntry(const std::string& command,
                             const std::vector<std::string>&,
                             const std::string&,
                             std::string*) const override
     {
+        ProgramLoadInfo info;
+        info.name = command;
+        info.psp = 0x1000;
+        info.load_segment = 0x1010;
+        info.image_bytes = 25;
+        info.entry_cs = 0x1000;
+        info.entry_ip = 0x0100;
+        info.initial_ss = 0x1000;
+        info.initial_sp = 0xfffe;
+        info.com = true;
+        AGENT_NotifyProgramLoaded(info);
         AGENT_NotifyDebuggerStopped(0, 0x100);
         return true;
     }
@@ -785,6 +802,26 @@ public:
     AGENT_RUNTIME_UNAVAILABLE(DeleteBreakpoint, bool DeleteBreakpoint(const NativeBreakpoint&, std::string* error) const)
     bool ConsumeLastBreakpointHit(BreakpointHit*) const override { return false; }
     bool ConsumeLastWatchpointHit(WatchpointHit*) const override { return false; }
+    bool GetDosMemoryMap(DosMemoryMap* memory_map, std::string*) const override
+    {
+        if (memory_map == NULL)
+            return false;
+        memory_map->current_psp = 0x1000;
+        memory_map->first_mcb = 0x0fff;
+        memory_map->blocks.clear();
+        DosMemoryBlock block;
+        block.mcb_segment = 0x0fff;
+        block.data_segment = 0x1000;
+        block.paragraphs = 0x0200;
+        block.owner_psp = 0x1000;
+        block.name = "AGENTFIX";
+        block.last = true;
+        block.process = true;
+        block.parent_psp = 0x0050;
+        block.environment_segment = 0x0f00;
+        memory_map->blocks.push_back(block);
+        return true;
+    }
     AGENT_RUNTIME_UNAVAILABLE(ExecuteDiagnosticCommand, bool ExecuteDiagnosticCommand(const std::string&, std::string*, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(StartTrace, bool StartTrace(const std::string&, std::uint32_t, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(ReadTrace, bool ReadTrace(std::vector<TraceSample>*, bool*, std::string* error) const)
@@ -1134,6 +1171,54 @@ static JsonValue RegisterFields(const RegisterSnapshot& registers)
     Add(&result, "instruction_pointer", String(Hex32(registers.instruction_pointer)));
     Add(&result, "flags", String(Hex32(registers.flags)));
     Add(&result, "cpu_mode", String(registers.cpu_mode));
+    return result;
+}
+
+static JsonValue DosMemoryMapResult(const DosMemoryMap& memory_map,
+                                    const AgentServer::Impl::Session& session)
+{
+    JsonValue result = SessionResult(session);
+    Add(&result, "current_psp", String(Hex16(memory_map.current_psp)));
+    Add(&result, "first_mcb", String(Hex16(memory_map.first_mcb)));
+    if (session.has_target_load) {
+        const ProgramLoadInfo& load = session.target_load;
+        JsonValue target = Object();
+        Add(&target, "name", String(load.name));
+        Add(&target, "format", String(load.com ? "com" : "mz"));
+        Add(&target, "psp", String(Hex16(load.psp)));
+        Add(&target, "load_segment", String(Hex16(load.load_segment)));
+        Add(&target, "image_bytes", Number(load.image_bytes));
+        JsonValue entry = Object();
+        Add(&entry, "segment", String(Hex16(load.entry_cs)));
+        Add(&entry, "offset", String(Hex16(load.entry_ip)));
+        Add(&target, "entry", entry);
+        JsonValue stack = Object();
+        Add(&stack, "segment", String(Hex16(load.initial_ss)));
+        Add(&stack, "offset", String(Hex16(load.initial_sp)));
+        Add(&target, "initial_stack", stack);
+        Add(&result, "target", target);
+    }
+    JsonValue blocks = JsonValue::Array();
+    for (std::vector<DosMemoryBlock>::const_iterator it = memory_map.blocks.begin();
+         it != memory_map.blocks.end(); ++it) {
+        JsonValue block = Object();
+        Add(&block, "mcb_segment", String(Hex16(it->mcb_segment)));
+        Add(&block, "data_segment", String(Hex16(it->data_segment)));
+        Add(&block, "paragraphs", Number(it->paragraphs));
+        Add(&block, "bytes", Number(static_cast<std::uint32_t>(it->paragraphs) * 16u));
+        Add(&block, "owner_psp", String(Hex16(it->owner_psp)));
+        Add(&block, "name", String(it->name));
+        Add(&block, "last", JsonValue::Bool(it->last));
+        Add(&block, "process", JsonValue::Bool(it->process));
+        Add(&block, "target_owned", JsonValue::Bool(
+                session.has_target_psp && it->owner_psp == session.target_psp));
+        if (it->process) {
+            Add(&block, "parent_psp", String(Hex16(it->parent_psp)));
+            Add(&block, "environment_segment", String(Hex16(it->environment_segment)));
+        }
+        blocks.array.push_back(block);
+    }
+    Add(&result, "blocks", blocks);
     return result;
 }
 
@@ -1510,6 +1595,10 @@ static std::string Capabilities(const AgentConfig& config)
     Add(&video, "atomic_components", JsonValue::Bool(true));
     Add(&video, "paged_read", JsonValue::Bool(true));
     Add(&result, "video", video);
+    JsonValue dos_capabilities = Object();
+    Add(&dos_capabilities, "memory_map", JsonValue::Bool(true));
+    Add(&dos_capabilities, "loader_metadata", JsonValue::Bool(true));
+    Add(&result, "dos", dos_capabilities);
     JsonValue breakpoints = Object();
 #ifdef C_HEAVY_DEBUG
     Add(&breakpoints, "memory_change", JsonValue::Bool(true));
@@ -1625,6 +1714,9 @@ bool AgentServer::Start(const AgentConfig& config, std::string* error)
     AGENT_SetProgramExitListener([state, generation](const std::uint16_t psp, const std::uint8_t exit_code, const bool tsr) {
         OnProgramExited(state, generation, psp, exit_code, tsr);
     });
+    AGENT_SetProgramLoadListener([state, generation](const ProgramLoadInfo& info) {
+        OnProgramLoaded(state, generation, info);
+    });
 
     if (!impl->transport->Start(config, [state](const std::string& request) {
             return HandleJsonRpcImpl(state, request);
@@ -1635,6 +1727,7 @@ bool AgentServer::Start(const AgentConfig& config, std::string* error)
         impl->stopping = false;
         AGENT_SetDebuggerStopListener(DebuggerStopListener());
         AGENT_SetProgramExitListener(ProgramExitListener());
+        AGENT_SetProgramLoadListener(ProgramLoadListener());
         return false;
     }
     return true;
@@ -1677,6 +1770,9 @@ bool AgentServer::StartForTest(const AgentConfig& config, std::string* error)
     AGENT_SetProgramExitListener([state, generation](const std::uint16_t psp, const std::uint8_t exit_code, const bool tsr) {
         OnProgramExited(state, generation, psp, exit_code, tsr);
     });
+    AGENT_SetProgramLoadListener([state, generation](const ProgramLoadInfo& info) {
+        OnProgramLoaded(state, generation, info);
+    });
     return true;
 }
 
@@ -1703,6 +1799,7 @@ void AgentServer::Stop()
     // holds shared state and observes stopping, rather than touching this.
     AGENT_SetDebuggerStopListener(DebuggerStopListener());
     AGENT_SetProgramExitListener(ProgramExitListener());
+    AGENT_SetProgramLoadListener(ProgramLoadListener());
     if (transport)
         transport->Stop();
 
@@ -2147,6 +2244,62 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                                      "COMMAND_REJECTED");
                 } else {
                     response = AGENT_MakeJsonRpcResult(parsed.id, RegistersResult(operation->registers, *session));
+                }
+            }
+        }
+    } else if (parsed.method == "dos.memory_map") {
+        if (session->state == Impl::SessionState::Running) {
+            response = SessionError(parsed.id, kErrorTargetRunning,
+                                    "Target must be stopped before reading the DOS memory map",
+                                    "TARGET_RUNNING", session);
+        } else if (session->state == Impl::SessionState::Exited) {
+            response = SessionError(parsed.id, kErrorCapabilityUnavailable,
+                                    "Target has exited", "TARGET_EXITED", session);
+        } else if (!session->has_target_load) {
+            response = Error(parsed.id, kErrorCapabilityUnavailable,
+                             "DOS loader metadata was not captured for this target",
+                             "CAPABILITY_UNAVAILABLE");
+        } else {
+            const std::shared_ptr<Impl::AdapterOperation> operation(new Impl::AdapterOperation());
+            const std::string session_id = session->id;
+            if (SubmitEmulationCommandLocked(impl, [impl, operation](const std::uint64_t) {
+                    AgentRuntime& adapter = *impl->runtime;
+                    std::string adapter_error;
+                    DosMemoryMap memory_map;
+                    const bool success = adapter.GetDosMemoryMap(&memory_map, &adapter_error);
+                    {
+                        std::lock_guard<std::mutex> operation_lock(operation->mutex);
+                        operation->success = success;
+                        operation->error = adapter_error;
+                        operation->dos_memory_map = std::move(memory_map);
+                        operation->done = true;
+                    }
+                    operation->completed.notify_all();
+                }) == 0) {
+                response = Error(parsed.id, kErrorCapabilityUnavailable,
+                                 "Emulation-thread bridge is unavailable", "COMMAND_REJECTED");
+            } else {
+                std::unique_lock<std::mutex> operation_lock(operation->mutex);
+                lock.unlock();
+                const bool completed = operation->completed.wait_for(
+                        operation_lock,
+                        std::chrono::milliseconds(impl->config.request_timeout_ms),
+                        [operation]() { return operation->done; });
+                lock.lock();
+                if (!RebindSessionAfterWait(impl, session_id, &session, &response, parsed.id))
+                    return response;
+                if (!completed) {
+                    response = Error(parsed.id, kErrorOperationTimeout,
+                                     "Timed out waiting for dos.memory_map on the emulation thread",
+                                     "OPERATION_TIMEOUT");
+                } else if (!operation->success) {
+                    response = Error(parsed.id, kErrorCapabilityUnavailable,
+                                     operation->error.empty() ?
+                                             "Unable to read the DOS memory map" : operation->error,
+                                     "COMMAND_REJECTED");
+                } else {
+                    response = AGENT_MakeJsonRpcResult(
+                            parsed.id, DosMemoryMapResult(operation->dos_memory_map, *session));
                 }
             }
         }
@@ -3553,6 +3706,9 @@ void AgentServer::OnDebuggerStopped(const std::shared_ptr<Impl>& impl,
     if (startup) {
         impl->session->target_psp = adapter.CurrentPsp();
         impl->session->has_target_psp = impl->session->target_psp != 0;
+        if (impl->session->has_target_load &&
+            impl->session->target_load.psp != impl->session->target_psp)
+            impl->session->has_target_load = false;
     }
     const bool trace_completed = impl->session->trace.IsActive() && trace_read && !native_trace_active;
     if (impl->session->trace.IsActive() && trace_read) {
@@ -3660,6 +3816,21 @@ void AgentServer::OnProgramExited(const std::shared_ptr<Impl>& impl,
         }
     }
     impl->state_changed.notify_all();
+}
+
+void AgentServer::OnProgramLoaded(const std::shared_ptr<Impl>& impl,
+                                  const std::uint64_t generation,
+                                  const ProgramLoadInfo& info)
+{
+    EmulationLease lease(impl, generation);
+    if (!lease.IsActive())
+        return;
+    std::lock_guard<std::mutex> lock(impl->mutex);
+    if (impl->stopping || !impl->session ||
+        impl->session->state != Impl::SessionState::Starting)
+        return;
+    impl->session->target_load = info;
+    impl->session->has_target_load = true;
 }
 
 bool AgentServer::RunProtocolSelfTest(std::string* error)

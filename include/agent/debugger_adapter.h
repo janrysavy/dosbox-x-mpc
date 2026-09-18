@@ -135,6 +135,24 @@ struct WatchpointHit {
     std::vector<std::uint8_t> after;
 };
 
+struct DosMemoryBlock {
+    std::uint16_t mcb_segment = 0;
+    std::uint16_t data_segment = 0;
+    std::uint16_t paragraphs = 0;
+    std::uint16_t owner_psp = 0;
+    std::string name;
+    bool last = false;
+    bool process = false;
+    std::uint16_t parent_psp = 0;
+    std::uint16_t environment_segment = 0;
+};
+
+struct DosMemoryMap {
+    std::uint16_t current_psp = 0;
+    std::uint16_t first_mcb = 0;
+    std::vector<DosMemoryBlock> blocks;
+};
+
 class DebuggerAdapter {
 public:
     bool IsAvailable() const;
@@ -174,6 +192,7 @@ public:
     bool DeleteBreakpoint(const NativeBreakpoint& breakpoint, std::string* error) const;
     bool ConsumeLastBreakpointHit(BreakpointHit* hit) const;
     bool ConsumeLastWatchpointHit(WatchpointHit* hit) const;
+    bool GetDosMemoryMap(DosMemoryMap* memory_map, std::string* error) const;
     bool ExecuteDiagnosticCommand(const std::string& command,
                                   std::string* raw_output,
                                   std::string* error) const;

@@ -19,6 +19,12 @@ def _integer(value: Any, name: str) -> int:
     return value
 
 
+def _boolean(value: Any, name: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{name} must be a boolean")
+    return value
+
+
 def _mapping(value: Any, name: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{name} must be an object")
@@ -333,6 +339,77 @@ class Breakpoint:
     enabled: bool = True
     condition: BreakpointCondition | None = None
     hit_filter: BreakpointHitFilter = BreakpointHitFilter()
+
+
+@dataclass(frozen=True)
+class DosProgramLoad:
+    name: str
+    format: str
+    psp: str
+    load_segment: str
+    image_bytes: int
+    entry_segment: str
+    entry_offset: str
+    initial_stack_segment: str
+    initial_stack_offset: str
+
+    @classmethod
+    def from_rpc(cls, value: Mapping[str, Any]) -> "DosProgramLoad":
+        entry = _mapping(value.get("entry"), "dos.memory_map.target.entry")
+        stack = _mapping(value.get("initial_stack"), "dos.memory_map.target.initial_stack")
+        return cls(
+            name=_string(value.get("name"), "dos.memory_map.target.name"),
+            format=_string(value.get("format"), "dos.memory_map.target.format"),
+            psp=_string(value.get("psp"), "dos.memory_map.target.psp"),
+            load_segment=_string(value.get("load_segment"), "dos.memory_map.target.load_segment"),
+            image_bytes=_integer(value.get("image_bytes"), "dos.memory_map.target.image_bytes"),
+            entry_segment=_string(entry.get("segment"), "dos.memory_map.target.entry.segment"),
+            entry_offset=_string(entry.get("offset"), "dos.memory_map.target.entry.offset"),
+            initial_stack_segment=_string(stack.get("segment"), "dos.memory_map.target.initial_stack.segment"),
+            initial_stack_offset=_string(stack.get("offset"), "dos.memory_map.target.initial_stack.offset"),
+        )
+
+
+@dataclass(frozen=True)
+class DosMemoryBlock:
+    mcb_segment: str
+    data_segment: str
+    paragraphs: int
+    bytes: int
+    owner_psp: str
+    name: str
+    last: bool
+    process: bool
+    target_owned: bool
+    parent_psp: str | None = None
+    environment_segment: str | None = None
+
+    @classmethod
+    def from_rpc(cls, value: Mapping[str, Any]) -> "DosMemoryBlock":
+        parent = value.get("parent_psp")
+        environment = value.get("environment_segment")
+        return cls(
+            mcb_segment=_string(value.get("mcb_segment"), "dos.memory_map.block.mcb_segment"),
+            data_segment=_string(value.get("data_segment"), "dos.memory_map.block.data_segment"),
+            paragraphs=_integer(value.get("paragraphs"), "dos.memory_map.block.paragraphs"),
+            bytes=_integer(value.get("bytes"), "dos.memory_map.block.bytes"),
+            owner_psp=_string(value.get("owner_psp"), "dos.memory_map.block.owner_psp"),
+            name=_string(value.get("name"), "dos.memory_map.block.name"),
+            last=_boolean(value.get("last"), "dos.memory_map.block.last"),
+            process=_boolean(value.get("process"), "dos.memory_map.block.process"),
+            target_owned=_boolean(value.get("target_owned"), "dos.memory_map.block.target_owned"),
+            parent_psp=_string(parent, "dos.memory_map.block.parent_psp") if parent is not None else None,
+            environment_segment=_string(environment, "dos.memory_map.block.environment_segment")
+            if environment is not None else None,
+        )
+
+
+@dataclass(frozen=True)
+class DosMemoryMap:
+    current_psp: str
+    first_mcb: str
+    target: DosProgramLoad
+    blocks: tuple[DosMemoryBlock, ...]
 
 
 @dataclass(frozen=True)

@@ -53,6 +53,26 @@ def main() -> int:
         if session.stop_reason.address is None:
             raise AssertionError("session.start did not return the entry address")
 
+        dos_map = client.get_dos_memory_map(session.id)
+        if (dos_map.target.format != "com" or dos_map.target.image_bytes != 25 or
+                dos_map.target.psp != session.stop_reason.address.segment or
+                int(dos_map.target.load_segment, 16) != int(dos_map.target.psp, 16) + 0x10 or
+                dos_map.target.entry_segment != session.stop_reason.address.segment or
+                dos_map.target.entry_offset != "0x0100"):
+            raise AssertionError(f"DOS loader metadata mismatch: {dos_map.target}")
+        target_blocks = [block for block in dos_map.blocks if block.target_owned]
+        process_blocks = [block for block in target_blocks if block.process]
+        if (not process_blocks or process_blocks[0].data_segment != dos_map.target.psp or
+                process_blocks[0].owner_psp != dos_map.target.psp or
+                process_blocks[0].bytes != process_blocks[0].paragraphs * 16):
+            raise AssertionError(f"DOS MCB ownership mismatch: {target_blocks}")
+        print(
+            "DOS-MAP evidence: "
+            f"PSP={dos_map.target.psp} LOAD={dos_map.target.load_segment} "
+            f"ENTRY={dos_map.target.entry_segment}:{dos_map.target.entry_offset} "
+            f"image={dos_map.target.image_bytes} bytes target_blocks={len(target_blocks)}."
+        )
+
         diagnostic = client.execute_command(session.id, "CPU")
         if not diagnostic.accepted or not diagnostic.raw_output:
             raise AssertionError("debugger.execute_command did not return diagnostic output")

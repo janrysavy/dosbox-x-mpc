@@ -192,6 +192,24 @@ class AgentClientTests(unittest.TestCase):
                 return {"result": {"session_id": "ses-1", "state_revision": 3, "address": address, "byte_count": 3, "data_base64": "QUJD", "sha256": "a" * 64}}
             if method == "memory.write":
                 return {"result": {"session_id": "ses-1", "state_revision": 4, "address": address, "byte_count": 3, "before_sha256": "b" * 64, "after_sha256": "c" * 64}}
+            if method == "dos.memory_map":
+                return {"result": {
+                    "session_id": "ses-1", "state_revision": 3,
+                    "current_psp": "0x0812", "first_mcb": "0x0070",
+                    "target": {
+                        "name": "AGENTFIX.COM", "format": "com", "psp": "0x0812",
+                        "load_segment": "0x0822", "image_bytes": 25,
+                        "entry": {"segment": "0x0812", "offset": "0x0100"},
+                        "initial_stack": {"segment": "0x0812", "offset": "0xFFFE"},
+                    },
+                    "blocks": [{
+                        "mcb_segment": "0x0811", "data_segment": "0x0812",
+                        "paragraphs": 512, "bytes": 8192, "owner_psp": "0x0812",
+                        "name": "AGENTFIX", "last": True, "process": True,
+                        "target_owned": True, "parent_psp": "0x0050",
+                        "environment_segment": "0x0800",
+                    }],
+                }}
             if method == "breakpoints.create":
                 return {"result": {"session_id": "ses-1", "state_revision": 5, "breakpoint_id": "bp-1", "kind": "execution", "length": 1, "once": False, "address": address, "condition": None, "hit_filter": {"skip": 0, "every": 1}}}
             if method == "breakpoints.list":
@@ -229,6 +247,9 @@ class AgentClientTests(unittest.TestCase):
         self.assertTrue(video.geometry["char9dot"])
         self.assertEqual(b"ABC", client.read_memory(session.id, MemoryAddress.segmented(0x812, 0x106), 3).data)
         self.assertEqual("c" * 64, client.write_memory(session.id, MemoryAddress.segmented(0x812, 0x106), b"ABC").after_sha256)
+        dos_map = client.get_dos_memory_map(session.id)
+        self.assertEqual("0x0822", dos_map.target.load_segment)
+        self.assertTrue(dos_map.blocks[0].target_owned)
         breakpoint = client.create_execution_breakpoint(session.id, 0x812, 0x106)
         self.assertEqual("bp-1", breakpoint.id)
         self.assertEqual((breakpoint,), client.list_breakpoints(session.id))
@@ -240,7 +261,7 @@ class AgentClientTests(unittest.TestCase):
         self.assertEqual(1, client.stop_trace(session.id))
         self.assertEqual("op-1", client.pause(session.id).id)
         self.assertEqual("op-1", client.stop(session.id).id)
-        self.assertEqual(26, len(transport.requests))
+        self.assertEqual(27, len(transport.requests))
         self.assertEqual(str(make_config().dosbox_workdir), transport.requests[1]["params"]["mounts"][0]["host_path"])
 
     def test_watchpoint_request_and_stop_are_typed(self) -> None:

@@ -872,6 +872,25 @@ bool DOS_Execute(const char* name, PhysPt block_pt, uint16_t flags) {
 			LOG(LOG_EXEC,LOG_ERROR)("stack outside memory block at EXEC");
 	}
 
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+	{
+		dosbox_agent::ProgramLoadInfo info;
+		info.name = name != nullptr ? name : "";
+		info.psp = pspseg;
+		info.load_segment = loadseg;
+		info.com = iscom;
+		/* This is the byte count actually returned by the loader reads.  The
+		 * page-rounded MZ memimagesize includes the unused tail of a partial
+		 * final page and is not the number of image bytes placed in memory. */
+		info.image_bytes = checksum_bytes;
+		info.entry_cs = RealSeg(csip);
+		info.entry_ip = RealOff(csip);
+		info.initial_ss = RealSeg(sssp);
+		info.initial_sp = RealOff(sssp);
+		dosbox_agent::AGENT_NotifyProgramLoaded(info);
+	}
+#endif
+
 
 	if ((flags == LOAD) || (flags == LOADNGO)) {
 		/* Get Caller's program CS:IP of the stack and set termination address to that */

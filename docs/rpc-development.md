@@ -289,7 +289,7 @@ JSON number 不能无损表达所有未来 guest address，v1 所有 guest 寄�
 
 | 方法 | 参数 | 成功结果 | 约束 |
 | --- | --- | --- | --- |
-| `agent.capabilities` | 无 | `protocol_version`、`debugger`、`trace.cpu`、breakpoint kinds and exact-access constraints、limits、address spaces | 无 session 时也可调用。 |
+| `agent.capabilities` | 无 | `protocol_version`、`debugger`、`trace.cpu`、breakpoint kinds and exact-access constraints、DOS loader/map support、limits、address spaces | 无 session 时也可调用。 |
 | `session.start` | `target.command`、`target.arguments`、`mounts`、`break_at` | `session_id`、`state=stopped`、`stop_reason=startup` | `break_at` v1 固定为 `entry`；目标必须在受控 workdir 内启动。 |
 | `session.status` | `session_id` | state、target、last_stop、state_revision | 任意 session 状态均可调用。 |
 | `session.stop` | `session_id`、`graceful_timeout_ms` | `operation_id` | 只请求停止；结果由 `execution.wait` 获取。 |
@@ -383,7 +383,27 @@ v1 不提供 `state.set_registers`。现有 `SR` 仅可通过 `debugger.execute_
 - 写入前后读取同一范围，返回 `before_sha256`、`after_sha256` 和 `byte_count`。
 - 任意一个字节地址不可访问时，整次写入失败并返回失败地址；不得只写可访问前缀。
 
-### 8.5 Breakpoint
+### 8.5 DOS loader and memory map
+
+`dos.memory_map` takes `session_id` and is available only while the target is
+stopped. Its target object contains the executable name, `com|mz` format, PSP,
+actual load segment, exact file-image byte count read by the loader, relocated
+entry CS:IP, and initial SS:SP. These values are captured in `DOS_Execute`; the
+server must not derive them from a conventional PSP layout.
+
+The same emulation-thread operation walks the live MCB chain from DOS's first
+MCB. Every block reports MCB/data segments, paragraph and byte counts, owner PSP,
+name, last/process flags, and target ownership. Process blocks additionally
+report parent PSP and environment segment. Invalid MCB headers, non-advancing
+links, segment overflow, or an excessive chain fail the whole request; a partial
+map is not evidence.
+
+`agent.capabilities.dos.memory_map` and `.loader_metadata` advertise this
+contract. The loaded MZ image size is the sum of bytes actually returned by the
+loader reads, not `pages * 512 - header_size`, because the last MZ page can be
+partial.
+
+### 8.6 Breakpoint
 
 | 方法 | 参数 | 结果 | 规则 |
 | --- | --- | --- | --- |
@@ -411,7 +431,7 @@ do not stop the emulator or complete the pending continue operation.
 
 RPC id 不得复用 `CBreakpoint` 当前显示列表 index。adapter 必须生成 session 内稳定的 `bp-*` id，并维护其与底层 breakpoint object 的映射，避免 `BPDEL` 后索引变化导致误删。
 
-### 8.6 Debugger 输出、原始命令和 trace
+### 8.7 Debugger 输出、原始命令和 trace
 
 | 方法 | 作用 | 结果约束 |
 | --- | --- | --- |
@@ -521,6 +541,7 @@ start:
 - [x] `RPC-C10` - `session.stop`; stop/wait is exercised from both running and stopped states; the final state is `exited`, and repeated stop is idempotent. Evidence: the Windows named-pipe tests return `kind=session_stop` for controller termination and `op-stop-complete` when stopped again after exit.
 - [x] `RPC-C11` - exact memory access watchpoints; `AGENTFIX.COM` writes two bytes at `DS:0201`, then reads `DS:0200`. A write watch reports instruction `CS:010C`, the bytes before the instruction and `43 42` after it, and post-IP `0111`; a read watch reports instruction `CS:0111`, value `41` before/after, and post-IP `0113`. Both are one-shot and absent from the next list. Evidence: 2026-09-18, `verify_client_clean_runs.ps1` completed against three fresh runtimes and the committed Turbo Pascal probe transcript separately reports its B800 writer at `08AB:0028`, old `3E`, new `20`, post-IP `002B`.
 - [x] `RPC-C12` - structured execution conditions and hit filters; `AGCOND.COM` reaches `CS:0106` with AX values 1 through 5. Condition `AX != 1`, `skip=1`, `every=2` stops only with AX 3 and 5 and reports condition-hit counts 2 and 4. Evidence: 2026-09-18, the named-pipe E2E produced those exact two stops without completing continue on rejected encounters.
+- [x] `RPC-C13` - exact DOS loader metadata and live MCB ownership; the COM fixture reports its 25 bytes, PSP-relative entry, separate load segment, and target process block, while the Turbo Pascal MZ probe's partial final page reports 3,408 bytes rather than the 3,488-byte rounded-page upper bound. Evidence: 2026-09-18, the named-pipe E2E passed and `re/harness/traces/agent-dos-map/session.txt` matched the mounted MZ header, relocated entry and stack with zero missing measurements.
 
 ### 阶段 D：输出、trace 和兼容命令
 
@@ -535,7 +556,7 @@ start:
 - [x] `RPC-E01` - Python client unit tests；执行 `python -m unittest discover -s client\python\tests -t client\python -v`；退出码为 0，覆盖 model、base64、error mapping、request id retry；证据：2026-09-18，10 个 unittest 全部通过，包括 typed exact-watchpoint evidence、structured breakpoint policies、binary length validation and malformed base64 rejection。
 - [x] `RPC-E02` - End-to-end fixture; run `python client\python\tests\test_e2e.py --config tests\agent\agent-test.env`. It covers start, breakpoint, continue, wait, register and memory access, step, controller stop, natural DOS exit, child-PSP filtering, and continue/stop race ordering. A passing run exits zero.
 - [x] `RPC-E03` - DOSBox-X 既有单元测试未回归；执行 `& '.\bin\x64\Agent Debug SDL2\dosbox-x.exe' -tests`；退出码为 0 且输出 `Unit test completed: success`；证据：2026-09-02，`-tests` 退出码为 0；当前 Windows GUI build 不向调用 PowerShell 转发测试日志，`shell.cpp` 的 `RUN_ALL_TESTS()` 返回值为进程退出状态。
-- [x] `RPC-E04` - 干净运行可重复；执行 `if (Test-Path tests\agent\runtime) { Remove-Item -Recurse -Force tests\agent\runtime }; New-Item -ItemType Directory -Path tests\agent\runtime` 后，连续运行 E02 三次；三次均通过，trace 和输出无跨运行数据；证据：2026-09-02，`tests\agent\verify_client_clean_runs.ps1` 创建三个此前不存在的独立 runtime/config 目录并串行运行 E02 三次，三次均通过；每次 E2E 断言 output sequence 从 1 开始、trace sequence 恰为 1、2。
+- [x] `RPC-E04` - 干净运行可重复；执行 `if (Test-Path tests\agent\runtime) { Remove-Item -Recurse -Force tests\agent\runtime }; New-Item -ItemType Directory -Path tests\agent\runtime` 后，连续运行 E02 三次；三次均通过，trace 和输出无跨运行数据；证据：2026-09-18，`tests\agent\verify_client_clean_runs.ps1` created three independent runtime/config directories, deliberately cleared DOS `PATH`, and completed all three runs. The pathless case proves target startup invokes the internal `Z:\SYSTEM\MOUNT.COM` directly instead of racing AUTOEXEC's PATH initialization; every run also starts output sequence at 1 and trace sequence at 1, 2.
 
 ## 12. 发布门禁
 
