@@ -194,6 +194,11 @@ TEST(AgentProtocol, ReportsBuildCapabilitiesAndLimits)
     EXPECT_NE(std::string::npos, response.find("\"hit_filter\":true"));
     EXPECT_NE(std::string::npos, response.find("\"run_until\":true"));
     EXPECT_NE(std::string::npos, response.find("\"run_until_atomic\":true"));
+    EXPECT_NE(std::string::npos, response.find("\"run_until_emulated_time_limit\":true"));
+    EXPECT_NE(std::string::npos, response.find("\"stop_emulated_timestamp_ns\":true"));
+#ifdef C_HEAVY_DEBUG
+    EXPECT_NE(std::string::npos, response.find("\"emulated_timestamp_ns\":true"));
+#endif
     EXPECT_NE(std::string::npos, response.find("\"checkpoints\":{\"create\":true"));
     EXPECT_NE(std::string::npos, response.find("\"host_files\":false"));
     EXPECT_NE(std::string::npos, response.find("\"max_checkpoint_bytes\":536870912"));
@@ -287,6 +292,57 @@ TEST(AgentRunUntil, InstallsResumesStopsAndRemovesOnePrivatePredicate)
     EXPECT_EQ(std::string::npos, listed.find("until-1"));
 }
 
+TEST(AgentRunUntil, StopsAtBoundedEmulatedTimeAndReportsOvershoot)
+{
+    dosbox_agent::AgentServer server;
+    std::string error;
+    ASSERT_TRUE(server.StartForTest(MakeTestConfig(), &error)) << error;
+    StartFixtureSession(&server);
+
+    const std::string invalid = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"bad-time\",\"method\":\"execution.run_until\","
+            "\"params\":{\"session_id\":\"ses-1\",\"max_emulated_ns\":0,\"predicate\":{"
+            "\"kind\":\"execution\",\"address\":{\"space\":\"segmented\","
+            "\"segment\":\"0x1000\",\"offset\":\"0x0000FFFF\"}}}}" );
+    EXPECT_NE(std::string::npos, invalid.find("positive 64-bit integer"));
+
+    const std::string started = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"bounded\",\"method\":\"execution.run_until\","
+            "\"params\":{\"session_id\":\"ses-1\",\"max_emulated_ns\":100,\"predicate\":{"
+            "\"kind\":\"execution\",\"address\":{\"space\":\"segmented\","
+            "\"segment\":\"0x1000\",\"offset\":\"0x0000FFFF\"}}}}" );
+    EXPECT_NE(std::string::npos, started.find("\"max_emulated_ns\":100"));
+
+    const std::string stopped = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"wait-bounded\",\"method\":\"execution.wait\","
+            "\"params\":{\"session_id\":\"ses-1\",\"operation_id\":\"op-1\",\"timeout_ms\":1000}}" );
+    EXPECT_NE(std::string::npos, stopped.find("\"kind\":\"emulated_time_limit\""));
+    EXPECT_NE(std::string::npos, stopped.find("\"emulated_time_ns\":1000107"));
+    EXPECT_NE(std::string::npos, stopped.find("\"requested_duration_ns\":100"));
+    EXPECT_NE(std::string::npos, stopped.find("\"start_emulated_time_ns\":1000000"));
+    EXPECT_NE(std::string::npos, stopped.find("\"deadline_emulated_time_ns\":1000100"));
+    EXPECT_NE(std::string::npos, stopped.find("\"overshoot_ns\":7"));
+    EXPECT_NE(std::string::npos, stopped.find("\"reached\":true"));
+
+    const std::string listed = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"list-after-time\",\"method\":\"breakpoints.list\","
+            "\"params\":{\"session_id\":\"ses-1\"}}" );
+    EXPECT_NE(std::string::npos, listed.find("\"breakpoints\":[]"));
+
+    const std::string predicate_started = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"bounded-predicate\",\"method\":\"execution.run_until\","
+            "\"params\":{\"session_id\":\"ses-1\",\"max_emulated_ns\":100,\"predicate\":{"
+            "\"kind\":\"execution\",\"address\":{\"space\":\"segmented\","
+            "\"segment\":\"0x1000\",\"offset\":\"0x00000106\"}}}}" );
+    EXPECT_NE(std::string::npos, predicate_started.find("\"operation_id\":\"op-2\""));
+    const std::string predicate_stopped = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"wait-predicate\",\"method\":\"execution.wait\","
+            "\"params\":{\"session_id\":\"ses-1\",\"operation_id\":\"op-2\",\"timeout_ms\":1000}}" );
+    EXPECT_NE(std::string::npos, predicate_stopped.find("\"kind\":\"run_until\""));
+    EXPECT_NE(std::string::npos, predicate_stopped.find("\"reached\":false"));
+    EXPECT_NE(std::string::npos, predicate_stopped.find("\"overshoot_ns\":0"));
+}
+
 TEST(AgentCheckpoint, CreatesRestoresListsDeletesAndInvalidatesOldResponses)
 {
     dosbox_agent::AgentServer server;
@@ -341,6 +397,7 @@ TEST(AgentTrace, PreservesOrderedTypedEffectsThroughPaging)
     dosbox_agent::TraceStore trace(4);
     trace.Begin("normal");
     dosbox_agent::TraceSample sample;
+    sample.emulated_time_ns = 123456789;
     sample.address.space = dosbox_agent::MemorySpace::Segmented;
     sample.address.segment = 0x1234;
     sample.address.offset = 0x0100;
@@ -369,6 +426,7 @@ TEST(AgentTrace, PreservesOrderedTypedEffectsThroughPaging)
     ASSERT_TRUE(trace.Read(false, 0, 4, &page, &expired));
     ASSERT_FALSE(expired);
     ASSERT_EQ(1U, page.events.size());
+    EXPECT_EQ(123456789U, page.events[0].sample.emulated_time_ns);
     ASSERT_EQ(2U, page.events[0].sample.effects.size());
     EXPECT_EQ(dosbox_agent::TraceEffectKind::MemoryWrite,
               page.events[0].sample.effects[0].kind);

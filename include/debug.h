@@ -111,6 +111,7 @@ struct DEBUG_AgentTraceEffect {
 };
 
 struct DEBUG_AgentTraceEvent {
+    uint64_t emulated_time_ns = 0;
     uint16_t cs = 0;
     uint32_t instruction_pointer = 0;
     uint32_t eax = 0;
@@ -135,6 +136,10 @@ bool DEBUG_AgentStartTrace(uint32_t instruction_count);
 bool DEBUG_AgentStopTrace(uint32_t* event_count);
 bool DEBUG_AgentTraceIsActive(void);
 void DEBUG_AgentCopyTraceEvents(std::vector<DEBUG_AgentTraceEvent>* events);
+bool DEBUG_AgentArmEmulatedTimeLimit(uint64_t deadline_ns);
+void DEBUG_AgentCancelEmulatedTimeLimit(void);
+bool DEBUG_AgentConsumeEmulatedTimeLimitHit(uint64_t* deadline_ns,
+                                            uint64_t* actual_ns);
 void DEBUG_AgentObserveIoAccess(bool write,
                                 uint16_t port,
                                 uint8_t byte_count,

@@ -39,15 +39,10 @@ bool IncludesIrq(const std::uint8_t irq)
                    recorder.config.irqs.end();
 }
 
-std::uint64_t EmulatedTimeNs()
-{
-    return static_cast<std::uint64_t>(std::llround(PIC_FullIndex() * 1000000.0));
-}
-
 void Append(HardwareTraceEvent event)
 {
     event.sequence = recorder.next_sequence++;
-    event.emulated_time_ns = EmulatedTimeNs();
+    event.emulated_time_ns = AGENT_EmulatedTimeNs();
     recorder.events.push_back(event);
     while (recorder.events.size() > recorder.config.capacity) {
         recorder.events.pop_front();
@@ -65,6 +60,11 @@ void FillStatus(HardwareTracePage* status)
 }
 
 } // namespace
+
+std::uint64_t AGENT_EmulatedTimeNs()
+{
+    return static_cast<std::uint64_t>(std::llround(PIC_FullIndex() * 1000000.0));
+}
 
 bool AGENT_HardwareTraceStart(const HardwareTraceConfig& config)
 {

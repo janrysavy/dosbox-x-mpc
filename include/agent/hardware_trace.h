@@ -5,6 +5,8 @@
 
 namespace dosbox_agent {
 
+std::uint64_t AGENT_EmulatedTimeNs();
+
 bool AGENT_HardwareTraceStart(const HardwareTraceConfig& config);
 bool AGENT_HardwareTraceRead(bool has_cursor,
                              std::uint64_t cursor,

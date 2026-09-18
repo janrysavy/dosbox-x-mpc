@@ -128,6 +128,7 @@ struct TraceEffect {
 };
 
 struct TraceSample {
+    std::uint64_t emulated_time_ns = 0;
     MemoryAddress address;
     RegisterSnapshot registers;
     std::string instruction;
@@ -364,6 +365,11 @@ public:
     bool ReadTrace(std::vector<TraceSample>* samples, bool* active, std::string* error) const;
     bool StopTrace(std::size_t* event_count, std::string* error) const;
     bool IsTraceComplete() const;
+    std::uint64_t EmulatedTimeNs() const;
+    bool ArmEmulatedTimeLimit(std::uint64_t deadline_ns, std::string* error) const;
+    void CancelEmulatedTimeLimit() const;
+    bool ConsumeEmulatedTimeLimitHit(std::uint64_t* deadline_ns,
+                                     std::uint64_t* actual_ns) const;
     bool StartHardwareTrace(const HardwareTraceConfig& config, std::string* error) const;
     bool ReadHardwareTrace(bool has_cursor,
                            std::uint64_t cursor,

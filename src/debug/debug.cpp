@@ -733,6 +733,10 @@ bool debug_agent_memory_watch_active = false;
 static bool agent_trace_active = false;
 static uint32_t agent_trace_remaining = 0;
 static vector<DEBUG_AgentTraceEvent> agent_trace_events;
+static bool agent_time_limit_active = false;
+static bool agent_time_limit_hit = false;
+static uint64_t agent_time_limit_deadline_ns = 0;
+static uint64_t agent_time_limit_actual_ns = 0;
 static bool agent_watch_instruction_active = false;
 static bool agent_watch_suppress = false;
 static bool agent_watch_pending = false;
@@ -6994,6 +6998,34 @@ bool DEBUG_AgentTraceIsActive(void)
 	return agent_trace_active;
 }
 
+bool DEBUG_AgentArmEmulatedTimeLimit(const uint64_t deadline_ns)
+{
+	if (agent_time_limit_active || deadline_ns == 0)
+		return false;
+	agent_time_limit_active = true;
+	agent_time_limit_hit = false;
+	agent_time_limit_deadline_ns = deadline_ns;
+	agent_time_limit_actual_ns = 0;
+	return true;
+}
+
+void DEBUG_AgentCancelEmulatedTimeLimit(void)
+{
+	agent_time_limit_active = false;
+	agent_time_limit_hit = false;
+}
+
+bool DEBUG_AgentConsumeEmulatedTimeLimitHit(uint64_t* deadline_ns,
+                                            uint64_t* actual_ns)
+{
+	if (!agent_time_limit_hit || deadline_ns == nullptr || actual_ns == nullptr)
+		return false;
+	*deadline_ns = agent_time_limit_deadline_ns;
+	*actual_ns = agent_time_limit_actual_ns;
+	agent_time_limit_hit = false;
+	return true;
+}
+
 void DEBUG_AgentCopyTraceEvents(vector<DEBUG_AgentTraceEvent>* events)
 {
 	if (events != nullptr)
@@ -7006,6 +7038,7 @@ static void DEBUG_AgentCaptureTraceEvent(void)
 	const uint32_t last_index = logCount == 0 ? LOGCPUMAX - 1 : logCount - 1;
 	const TLogInst& inst = logInst[last_index];
 	DEBUG_AgentTraceEvent event;
+	event.emulated_time_ns = dosbox_agent::AGENT_EmulatedTimeNs();
 	event.cs = inst.s_cs;
 	event.instruction_pointer = inst.eip;
 	event.eax = inst.eax;
@@ -7138,6 +7171,15 @@ bool DEBUG_HeavyIsBreakpoint(void) {
 		agent_watch_instruction_ip = reg_eip;
 		agent_watch_instruction_active = true;
 		return false;
+	}
+	if (agent_time_limit_active) {
+		const uint64_t now_ns = dosbox_agent::AGENT_EmulatedTimeNs();
+		if (now_ns >= agent_time_limit_deadline_ns) {
+			agent_time_limit_active = false;
+			agent_time_limit_hit = true;
+			agent_time_limit_actual_ns = now_ns;
+			return true;
+		}
 	}
 	if (!CBreakpoint::BPoints.empty() && CBreakpoint::CheckBreakpoint(SegValue(cs),reg_eip)) {
 		return true;

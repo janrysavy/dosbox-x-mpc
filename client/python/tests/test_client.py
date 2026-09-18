@@ -165,7 +165,16 @@ class AgentClientTests(unittest.TestCase):
                 return {"result": {"session_id": "ses-1", "state_revision": 2,
                                    "operation_id": "op-until", "predicate_id": "until-1"}}
             if method == "execution.wait":
-                return {"result": {"session_id": "ses-1", "state_revision": 2, "state": "stopped", "stop_reason": {"kind": "breakpoint", "address": address}}}
+                return {"result": {"session_id": "ses-1", "state_revision": 2, "state": "stopped", "stop_reason": {
+                    "kind": "emulated_time_limit", "address": address,
+                    "emulated_time_ns": 1000107,
+                    "emulated_time_limit": {
+                        "requested_duration_ns": 100, "start_emulated_time_ns": 1000000,
+                        "deadline_emulated_time_ns": 1000100,
+                        "actual_stop_emulated_time_ns": 1000107,
+                        "reached": True, "overshoot_ns": 7,
+                    },
+                }}}
             if method == "execution.step":
                 result = registers_result(4)
                 result["stop_reason"] = {"kind": "step", "address": address}
@@ -254,7 +263,8 @@ class AgentClientTests(unittest.TestCase):
                 return {"result": {"session_id": "ses-1", "state_revision": 6, "active": True}}
             if method == "trace.read":
                 return {"result": {"session_id": "ses-1", "state_revision": 6, "active": False, "events": [{
-                    "sequence": 1, "address": address, "instruction": "MOV AX,1234",
+                    "sequence": 1, "emulated_time_ns": 123456, "address": address,
+                    "instruction": "MOV AX,1234",
                     "register_changes": {"eax": "0x00001234"},
                     "effects": [
                         {"kind": "memory_read", "byte_count": 1,
@@ -315,10 +325,15 @@ class AgentClientTests(unittest.TestCase):
             session.id,
             RunUntilPredicate("execution", MemoryAddress.segmented(0x812, 0x106),
                               condition=BreakpointCondition("ax", "ne", 0)),
+            max_emulated_ns=100,
         )
         self.assertEqual(("op-until", "until-1"), (until.id, until.predicate_id))
         self.assertEqual("execution", transport.requests[-1]["params"]["predicate"]["kind"])
-        self.assertFalse(client.wait(session.id, "op-1", 1).running)
+        self.assertEqual(100, transport.requests[-1]["params"]["max_emulated_ns"])
+        bounded = client.wait(session.id, "op-1", 1)
+        self.assertFalse(bounded.running)
+        self.assertEqual(1000107, bounded.session.stop_reason.emulated_time_ns)
+        self.assertEqual(7, bounded.session.stop_reason.emulated_time_limit.overshoot_ns)
         stepped, stepped_registers = client.step(session.id)
         self.assertEqual("stopped", stepped.state)
         self.assertEqual("real", stepped_registers.cpu_mode)
@@ -397,6 +412,10 @@ class AgentClientTests(unittest.TestCase):
         ).to_rpc()
         self.assertEqual({"type": "software_interrupt", "number": "0x21", "ah": "0x4C"},
                          encoded["event"])
+        client = AgentClient(make_config(), FakeTransport(lambda request: {"result": {}}))
+        with self.assertRaisesRegex(ValueError, "positive 64-bit"):
+            client.run_until("ses-1", RunUntilPredicate("execution", MemoryAddress.segmented(0, 0)),
+                             max_emulated_ns=0)
 
     def test_device_input_methods_are_typed_and_preserve_order(self) -> None:
         def input_state(revision: int, pressed: list[str], enabled: bool = False,

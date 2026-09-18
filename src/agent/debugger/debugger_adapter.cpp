@@ -1352,6 +1352,7 @@ bool DebuggerAdapter::ReadTrace(std::vector<TraceSample>* samples,
     samples->reserve(native_events.size());
     for (std::vector<DEBUG_AgentTraceEvent>::const_iterator it = native_events.begin(); it != native_events.end(); ++it) {
         TraceSample sample;
+        sample.emulated_time_ns = it->emulated_time_ns;
         sample.address.space = MemorySpace::Segmented;
         sample.address.segment = it->cs;
         sample.address.offset = it->instruction_pointer;
@@ -1414,6 +1415,50 @@ bool DebuggerAdapter::ReadTrace(std::vector<TraceSample>* samples,
     (void)active;
     if (error != NULL)
         *error = "CPU trace requires C_HEAVY_DEBUG";
+    return false;
+#endif
+}
+
+std::uint64_t DebuggerAdapter::EmulatedTimeNs() const
+{
+    return AGENT_EmulatedTimeNs();
+}
+
+bool DebuggerAdapter::ArmEmulatedTimeLimit(const std::uint64_t deadline_ns,
+                                           std::string* error) const
+{
+#if C_HEAVY_DEBUG
+    if (!RequireAvailable(error) || !RequireEmulationThread(error))
+        return false;
+    if (!DEBUG_AgentArmEmulatedTimeLimit(deadline_ns)) {
+        if (error != NULL)
+            *error = "An emulated-time limit is already active or the deadline is invalid";
+        return false;
+    }
+    return true;
+#else
+    (void)deadline_ns;
+    if (error != NULL)
+        *error = "Emulated-time execution limits require C_HEAVY_DEBUG";
+    return false;
+#endif
+}
+
+void DebuggerAdapter::CancelEmulatedTimeLimit() const
+{
+#if C_HEAVY_DEBUG
+    DEBUG_AgentCancelEmulatedTimeLimit();
+#endif
+}
+
+bool DebuggerAdapter::ConsumeEmulatedTimeLimitHit(std::uint64_t* deadline_ns,
+                                                  std::uint64_t* actual_ns) const
+{
+#if C_HEAVY_DEBUG
+    return DEBUG_AgentConsumeEmulatedTimeLimitHit(deadline_ns, actual_ns);
+#else
+    (void)deadline_ns;
+    (void)actual_ns;
     return false;
 #endif
 }

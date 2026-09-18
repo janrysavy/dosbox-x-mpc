@@ -188,6 +188,30 @@ class InterruptEvent:
 
 
 @dataclass(frozen=True)
+class EmulatedTimeLimit:
+    requested_duration_ns: int
+    start_emulated_time_ns: int
+    deadline_emulated_time_ns: int
+    actual_stop_emulated_time_ns: int
+    reached: bool
+    overshoot_ns: int
+
+    @classmethod
+    def from_rpc(cls, value: Mapping[str, Any]) -> "EmulatedTimeLimit":
+        reached = value.get("reached")
+        if not isinstance(reached, bool):
+            raise ValueError("stop_reason.emulated_time_limit.reached must be a boolean")
+        return cls(
+            requested_duration_ns=_integer(value.get("requested_duration_ns"), "emulated_time_limit.requested_duration_ns"),
+            start_emulated_time_ns=_integer(value.get("start_emulated_time_ns"), "emulated_time_limit.start_emulated_time_ns"),
+            deadline_emulated_time_ns=_integer(value.get("deadline_emulated_time_ns"), "emulated_time_limit.deadline_emulated_time_ns"),
+            actual_stop_emulated_time_ns=_integer(value.get("actual_stop_emulated_time_ns"), "emulated_time_limit.actual_stop_emulated_time_ns"),
+            reached=reached,
+            overshoot_ns=_integer(value.get("overshoot_ns"), "emulated_time_limit.overshoot_ns"),
+        )
+
+
+@dataclass(frozen=True)
 class StopReason:
     kind: str
     message: str | None = None
@@ -200,6 +224,8 @@ class StopReason:
     registers: RegisterSnapshot | None = None
     hit_count: int | None = None
     event: InterruptEvent | None = None
+    emulated_time_ns: int | None = None
+    emulated_time_limit: EmulatedTimeLimit | None = None
 
     @classmethod
     def from_rpc(cls, value: Mapping[str, Any]) -> "StopReason":
@@ -212,6 +238,8 @@ class StopReason:
         hit_count = value.get("hit_count")
         event = value.get("event")
         message = value.get("message")
+        emulated_time_ns = value.get("emulated_time_ns")
+        emulated_time_limit = value.get("emulated_time_limit")
         return cls(
             kind=_string(value.get("kind"), "stop_reason.kind"),
             message=_string(message, "stop_reason.message") if message is not None else None,
@@ -231,6 +259,11 @@ class StopReason:
             event=InterruptEvent.from_rpc(
                 _mapping(event, "stop_reason.event")
             ) if event is not None else None,
+            emulated_time_ns=_integer(emulated_time_ns, "stop_reason.emulated_time_ns")
+            if emulated_time_ns is not None else None,
+            emulated_time_limit=EmulatedTimeLimit.from_rpc(
+                _mapping(emulated_time_limit, "stop_reason.emulated_time_limit")
+            ) if emulated_time_limit is not None else None,
         )
 
 
@@ -667,6 +700,7 @@ class TraceEffect:
 @dataclass(frozen=True)
 class TraceEvent:
     sequence: int
+    emulated_time_ns: int
     address: MemoryAddress
     instruction: str
     register_changes: Mapping[str, str]

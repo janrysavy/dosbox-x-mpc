@@ -116,6 +116,23 @@ static bool GetUnsignedInteger(const JsonValue& value, std::uint32_t* result)
     return true;
 }
 
+static bool GetUnsignedInteger64(const JsonValue& value, std::uint64_t* result)
+{
+    if (value.type != JsonType::Number || value.text.empty())
+        return false;
+    std::uint64_t parsed = 0;
+    for (std::string::const_iterator it = value.text.begin(); it != value.text.end(); ++it) {
+        if (!std::isdigit(static_cast<unsigned char>(*it)))
+            return false;
+        const unsigned int digit = static_cast<unsigned int>(*it - '0');
+        if (parsed > ((std::numeric_limits<std::uint64_t>::max)() - digit) / 10u)
+            return false;
+        parsed = parsed * 10u + digit;
+    }
+    *result = parsed;
+    return true;
+}
+
 static bool GetSignedInteger(const JsonValue& value, std::int32_t* result)
 {
     if (value.type != JsonType::Number || value.text.empty())
@@ -739,6 +756,7 @@ public:
         std::size_t trace_event_count = 0;
         HardwareTracePage hardware_trace_page;
         bool cursor_expired = false;
+        std::uint64_t emulated_time_ns = 0;
     };
 
     struct StepOperation {
@@ -802,6 +820,17 @@ public:
         bool has_last_watchpoint_registers = false;
         std::string failure_message;
         std::uint64_t state_revision = 0;
+        std::uint64_t last_stop_emulated_time_ns = 0;
+        bool has_last_stop_emulated_time = false;
+        bool emulated_time_limit_active = false;
+        std::uint64_t emulated_time_limit_start_ns = 0;
+        std::uint64_t emulated_time_limit_deadline_ns = 0;
+        std::uint64_t emulated_time_limit_duration_ns = 0;
+        bool has_last_stop_time_limit = false;
+        bool last_stop_time_limit_reached = false;
+        std::uint64_t last_stop_time_limit_start_ns = 0;
+        std::uint64_t last_stop_time_limit_deadline_ns = 0;
+        std::uint64_t last_stop_time_limit_duration_ns = 0;
         std::uint64_t next_operation = 1;
         std::uint64_t next_breakpoint = 1;
         std::uint64_t next_output_sequence = 1;
@@ -914,6 +943,11 @@ public:
     virtual bool StartTrace(const std::string& detail, std::uint32_t instruction_count, std::string* error) const = 0;
     virtual bool ReadTrace(std::vector<TraceSample>* samples, bool* active, std::string* error) const = 0;
     virtual bool StopTrace(std::size_t* event_count, std::string* error) const = 0;
+    virtual std::uint64_t EmulatedTimeNs() const = 0;
+    virtual bool ArmEmulatedTimeLimit(std::uint64_t deadline_ns, std::string* error) const = 0;
+    virtual void CancelEmulatedTimeLimit() const = 0;
+    virtual bool ConsumeEmulatedTimeLimitHit(std::uint64_t* deadline_ns,
+                                             std::uint64_t* actual_ns) const = 0;
     virtual bool StartHardwareTrace(const HardwareTraceConfig& config, std::string* error) const = 0;
     virtual bool ReadHardwareTrace(bool has_cursor, std::uint64_t cursor, std::size_t limit,
                                    HardwareTracePage* page, bool* cursor_expired,
@@ -969,6 +1003,10 @@ public:
     AGENT_RUNTIME_FORWARD(StartTrace, bool StartTrace(const std::string& detail, std::uint32_t instruction_count, std::string* error) const, (detail, instruction_count, error))
     AGENT_RUNTIME_FORWARD(ReadTrace, bool ReadTrace(std::vector<TraceSample>* samples, bool* active, std::string* error) const, (samples, active, error))
     AGENT_RUNTIME_FORWARD(StopTrace, bool StopTrace(std::size_t* event_count, std::string* error) const, (event_count, error))
+    AGENT_RUNTIME_FORWARD(EmulatedTimeNs, std::uint64_t EmulatedTimeNs() const, ())
+    AGENT_RUNTIME_FORWARD(ArmEmulatedTimeLimit, bool ArmEmulatedTimeLimit(std::uint64_t deadline_ns, std::string* error) const, (deadline_ns, error))
+    AGENT_RUNTIME_FORWARD(CancelEmulatedTimeLimit, void CancelEmulatedTimeLimit() const, ())
+    AGENT_RUNTIME_FORWARD(ConsumeEmulatedTimeLimitHit, bool ConsumeEmulatedTimeLimitHit(std::uint64_t* deadline_ns, std::uint64_t* actual_ns) const, (deadline_ns, actual_ns))
     AGENT_RUNTIME_FORWARD(StartHardwareTrace, bool StartHardwareTrace(const HardwareTraceConfig& config, std::string* error) const, (config, error))
     AGENT_RUNTIME_FORWARD(ReadHardwareTrace, bool ReadHardwareTrace(bool has_cursor, std::uint64_t cursor, std::size_t limit, HardwareTracePage* page, bool* cursor_expired, std::string* error) const, (has_cursor, cursor, limit, page, cursor_expired, error))
     AGENT_RUNTIME_FORWARD(StopHardwareTrace, bool StopHardwareTrace(HardwareTracePage* status, std::string* error) const, (status, error))
@@ -996,6 +1034,14 @@ public:
 
     bool Continue(std::string*) const override
     {
+        if (fake_time_limit_active.load() && fake_breakpoint_offset.load() == 0x0000ffffu) {
+            fake_time_limit_active.store(false);
+            const std::uint64_t deadline = fake_time_limit_deadline.load();
+            fake_emulated_time_ns.store(deadline + 7u);
+            fake_time_limit_hit.store(true);
+            AGENT_NotifyDebuggerStopped(0x1000, 0x0104);
+            return true;
+        }
         const std::uintptr_t handle = armed_fake_breakpoint.exchange(0);
         if (handle != 0) {
             hit_fake_breakpoint.store(handle);
@@ -1142,6 +1188,7 @@ public:
         breakpoint->condition = condition;
         breakpoint->hit_filter = hit_filter;
         armed_fake_breakpoint.store(breakpoint->handle);
+        fake_breakpoint_offset.store(address.offset);
         return true;
     }
     bool CreateInterruptBreakpoint(const InterruptBreakpointSelector& selector,
@@ -1220,6 +1267,32 @@ public:
     AGENT_RUNTIME_UNAVAILABLE(StartTrace, bool StartTrace(const std::string&, std::uint32_t, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(ReadTrace, bool ReadTrace(std::vector<TraceSample>*, bool*, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(StopTrace, bool StopTrace(std::size_t*, std::string* error) const)
+    std::uint64_t EmulatedTimeNs() const override
+    {
+        return fake_emulated_time_ns.load();
+    }
+    bool ArmEmulatedTimeLimit(const std::uint64_t deadline_ns, std::string*) const override
+    {
+        bool expected = false;
+        if (deadline_ns == 0 || !fake_time_limit_active.compare_exchange_strong(expected, true))
+            return false;
+        fake_time_limit_deadline.store(deadline_ns);
+        fake_time_limit_hit.store(false);
+        return true;
+    }
+    void CancelEmulatedTimeLimit() const override
+    {
+        fake_time_limit_active.store(false);
+    }
+    bool ConsumeEmulatedTimeLimitHit(std::uint64_t* deadline_ns,
+                                     std::uint64_t* actual_ns) const override
+    {
+        if (deadline_ns == NULL || actual_ns == NULL || !fake_time_limit_hit.exchange(false))
+            return false;
+        *deadline_ns = fake_time_limit_deadline.load();
+        *actual_ns = fake_emulated_time_ns.load();
+        return true;
+    }
     bool StartHardwareTrace(const HardwareTraceConfig& config, std::string*) const override
     {
         if (fake_hardware_trace_active || config.capacity == 0)
@@ -1254,11 +1327,16 @@ private:
     mutable std::atomic<std::uintptr_t> next_fake_breakpoint{0x2000};
     mutable std::atomic<std::uintptr_t> armed_fake_breakpoint{0};
     mutable std::atomic<std::uintptr_t> hit_fake_breakpoint{0};
+    mutable std::atomic<std::uint32_t> fake_breakpoint_offset{0};
     mutable std::string fake_checkpoint_state{"fake-state"};
     mutable InputState fake_input_state;
     mutable bool fake_hardware_trace_active = false;
     mutable std::size_t fake_hardware_trace_capacity = 0;
     mutable bool fake_cursor_expired = false;
+    mutable std::atomic<std::uint64_t> fake_emulated_time_ns{1000000};
+    mutable std::atomic<std::uint64_t> fake_time_limit_deadline{0};
+    mutable std::atomic<bool> fake_time_limit_active{false};
+    mutable std::atomic<bool> fake_time_limit_hit{false};
 
     static void SetUnavailable(std::string* error)
     {
@@ -1669,6 +1747,21 @@ static JsonValue StopReason(const AgentServer::Impl::Session& session)
 {
     JsonValue stop = Object();
     Add(&stop, "kind", String(session.last_stop_kind));
+    if (session.has_last_stop_emulated_time)
+        Add(&stop, "emulated_time_ns", Number(session.last_stop_emulated_time_ns));
+    if (session.has_last_stop_time_limit) {
+        JsonValue limit = Object();
+        Add(&limit, "requested_duration_ns", Number(session.last_stop_time_limit_duration_ns));
+        Add(&limit, "start_emulated_time_ns", Number(session.last_stop_time_limit_start_ns));
+        Add(&limit, "deadline_emulated_time_ns", Number(session.last_stop_time_limit_deadline_ns));
+        Add(&limit, "actual_stop_emulated_time_ns", Number(session.last_stop_emulated_time_ns));
+        Add(&limit, "reached", JsonValue::Bool(session.last_stop_time_limit_reached));
+        Add(&limit, "overshoot_ns", Number(
+                session.last_stop_time_limit_reached &&
+                session.last_stop_emulated_time_ns >= session.last_stop_time_limit_deadline_ns ?
+                session.last_stop_emulated_time_ns - session.last_stop_time_limit_deadline_ns : 0));
+        Add(&stop, "emulated_time_limit", limit);
+    }
     if (!session.last_stop_message.empty())
         Add(&stop, "message", String(session.last_stop_message));
     if (!session.last_stop_breakpoint_id.empty())
@@ -1700,6 +1793,7 @@ static JsonValue StopReason(const AgentServer::Impl::Session& session)
         Add(&stop, "address", EncodeMemoryAddress(session.last_stop_breakpoint_address));
     } else if (session.last_stop_kind == "startup" || session.last_stop_kind == "step" ||
                session.last_stop_kind == "breakpoint" || session.last_stop_kind == "run_until" ||
+               session.last_stop_kind == "emulated_time_limit" ||
                session.last_stop_kind == "checkpoint_restore") {
         JsonValue address = Object();
         Add(&address, "space", String("segmented"));
@@ -1751,6 +1845,7 @@ static JsonValue TraceEventResult(const TraceEvent& event, const std::string& de
 {
     JsonValue result = Object();
     Add(&result, "sequence", Number(event.sequence));
+    Add(&result, "emulated_time_ns", Number(event.sample.emulated_time_ns));
     Add(&result, "address", EncodeMemoryAddress(event.sample.address));
     std::string instruction = event.sample.instruction;
     if (detail == "csip")
@@ -2160,6 +2255,7 @@ static std::string Capabilities(const AgentConfig& config)
 #ifdef C_HEAVY_DEBUG
     Add(&trace, "cpu", JsonValue::Bool(true));
     Add(&trace, "memory_io_effects", JsonValue::Bool(true));
+    Add(&trace, "emulated_timestamp_ns", JsonValue::Bool(true));
     Add(&trace, "effects_require_normal_core", JsonValue::Bool(true));
 #else
     Add(&trace, "cpu", JsonValue::Bool(false));
@@ -2185,6 +2281,12 @@ static std::string Capabilities(const AgentConfig& config)
     JsonValue execution = Object();
     Add(&execution, "run_until", JsonValue::Bool(true));
     Add(&execution, "run_until_atomic", JsonValue::Bool(true));
+#ifdef C_HEAVY_DEBUG
+    Add(&execution, "run_until_emulated_time_limit", JsonValue::Bool(true));
+#else
+    Add(&execution, "run_until_emulated_time_limit", JsonValue::Bool(false));
+#endif
+    Add(&execution, "stop_emulated_timestamp_ns", JsonValue::Bool(true));
     JsonValue predicate_kinds = JsonValue::Array();
     predicate_kinds.array.push_back(String("execution"));
     predicate_kinds.array.push_back(String("interrupt"));
@@ -2717,6 +2819,9 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
         response = AGENT_MakeJsonRpcResult(parsed.id, result);
     } else if (parsed.method == "execution.run_until") {
         const JsonValue* predicate = parsed.params.Find("predicate");
+        const JsonValue* max_emulated = parsed.params.Find("max_emulated_ns");
+        std::uint64_t max_emulated_ns = 0;
+        const bool has_emulated_limit = max_emulated != NULL;
         std::string kind_name;
         std::string validation_error;
         MemoryAddress address;
@@ -2733,7 +2838,11 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
         const JsonValue* length_value = valid ? predicate->Find("length") : NULL;
         const JsonValue* address_value = valid ? predicate->Find("address") : NULL;
         const JsonValue* event_value = valid ? predicate->Find("event") : NULL;
-        if (!valid)
+        if (has_emulated_limit &&
+            (!GetUnsignedInteger64(*max_emulated, &max_emulated_ns) || max_emulated_ns == 0)) {
+            validation_error = "max_emulated_ns must be a positive 64-bit integer";
+            valid = false;
+        } else if (!valid)
             validation_error = "execution.run_until requires one supported predicate object";
         else if (predicate->Find("once") != NULL) {
             validation_error = "run-until predicates are implicitly one-shot and do not accept once";
@@ -2810,7 +2919,8 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                 const std::string session_id = session->id;
                 if (SubmitEmulationCommandLocked(impl,
                         [impl, session_id, operation_id, predicate_id, kind, address,
-                         interrupt, length, condition, hit_filter](const std::uint64_t) {
+                         interrupt, length, condition, hit_filter, has_emulated_limit,
+                         max_emulated_ns](const std::uint64_t) {
                     AgentRuntime& adapter = *impl->runtime;
                     std::string adapter_error;
                     MemoryAccessError access_error;
@@ -2848,6 +2958,43 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                         return;
                     }
 
+                    std::uint64_t time_start_ns = 0;
+                    std::uint64_t time_deadline_ns = 0;
+                    if (has_emulated_limit) {
+                        time_start_ns = adapter.EmulatedTimeNs();
+                        if (max_emulated_ns >
+                            (std::numeric_limits<std::uint64_t>::max)() - time_start_ns) {
+                            adapter_error = "Emulated-time deadline overflows the native clock";
+                        } else {
+                            time_deadline_ns = time_start_ns + max_emulated_ns;
+                            if (!adapter.ArmEmulatedTimeLimit(time_deadline_ns, &adapter_error) &&
+                                adapter_error.empty())
+                                adapter_error = "Debugger rejected the emulated-time limit";
+                        }
+                        if (!adapter_error.empty()) {
+                            std::string cleanup_error;
+                            (void)adapter.DeleteBreakpoint(native, &cleanup_error);
+                            std::lock_guard<std::mutex> command_lock(impl->mutex);
+                            if (!impl->session || impl->session->id != session_id)
+                                return;
+                            Impl::Session& active = *impl->session;
+                            std::map<std::string, Impl::Operation>::iterator pending =
+                                    active.operations.find(operation_id);
+                            if (pending == active.operations.end() || pending->second.complete)
+                                return;
+                            active.state = Impl::SessionState::Stopped;
+                            active.last_stop_kind = "fault";
+                            active.last_stop_message = adapter_error;
+                            active.failure_message = adapter_error;
+                            pending->second.terminal_state = Impl::SessionState::Stopped;
+                            pending->second.stop_kind = "fault";
+                            pending->second.complete = true;
+                            ++active.state_revision;
+                            impl->state_changed.notify_all();
+                            return;
+                        }
+                    }
+
                     bool installed = false;
                     {
                         std::lock_guard<std::mutex> command_lock(impl->mutex);
@@ -2863,11 +3010,19 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                                 temporary.temporary = true;
                                 temporary.operation_id = operation_id;
                                 impl->session->breakpoints[predicate_id] = temporary;
+                                if (has_emulated_limit) {
+                                    impl->session->emulated_time_limit_active = true;
+                                    impl->session->emulated_time_limit_start_ns = time_start_ns;
+                                    impl->session->emulated_time_limit_deadline_ns = time_deadline_ns;
+                                    impl->session->emulated_time_limit_duration_ns = max_emulated_ns;
+                                }
                                 installed = true;
                             }
                         }
                     }
                     if (!installed) {
+                        if (has_emulated_limit)
+                            adapter.CancelEmulatedTimeLimit();
                         std::string cleanup_error;
                         (void)adapter.DeleteBreakpoint(native, &cleanup_error);
                         return;
@@ -2876,6 +3031,8 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                         return;
 
                     std::string cleanup_error;
+                    if (has_emulated_limit)
+                        adapter.CancelEmulatedTimeLimit();
                     (void)adapter.DeleteBreakpoint(native, &cleanup_error);
                     if (adapter_error.empty())
                         adapter_error = "Debugger rejected atomic run-until resume";
@@ -2884,6 +3041,7 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                         return;
                     Impl::Session& active = *impl->session;
                     active.breakpoints.erase(predicate_id);
+                    active.emulated_time_limit_active = false;
                     std::map<std::string, Impl::Operation>::iterator pending =
                             active.operations.find(operation_id);
                     if (pending == active.operations.end() || pending->second.complete)
@@ -2908,6 +3066,8 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                     Add(&result, "operation_id", String(operation_id));
                     Add(&result, "predicate_id", String(predicate_id));
                     Add(&result, "state", String("running"));
+                    if (has_emulated_limit)
+                        Add(&result, "max_emulated_ns", Number(max_emulated_ns));
                     response = AGENT_MakeJsonRpcResult(parsed.id, result);
                 }
             }
@@ -3612,11 +3772,13 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                             adapter.RestoreCheckpoint(*checkpoint_state, &adapter_error);
                     if (success)
                         success = adapter.GetRegisters(&registers, &adapter_error);
+                    const std::uint64_t emulated_time_ns = adapter.EmulatedTimeNs();
                     {
                         std::lock_guard<std::mutex> operation_lock(operation->mutex);
                         operation->success = success;
                         operation->error = adapter_error;
                         operation->registers = registers;
+                        operation->emulated_time_ns = emulated_time_ns;
                         operation->done = true;
                     }
                     operation->completed.notify_all();
@@ -3647,6 +3809,9 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                         ++session->state_revision;
                         session->last_stop_kind = "checkpoint_restore";
                         session->last_stop_message.clear();
+                        session->last_stop_emulated_time_ns = operation->emulated_time_ns;
+                        session->has_last_stop_emulated_time = true;
+                        session->has_last_stop_time_limit = false;
                         session->last_stop_segment = operation->registers.cs;
                         session->last_stop_instruction_pointer =
                                 operation->registers.instruction_pointer;
@@ -4244,12 +4409,14 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                 bool success = adapter.Step(step_mode, &continued, &adapter_error);
                 if (success && !continued)
                     success = adapter.GetRegisters(&registers, &adapter_error);
+                const std::uint64_t emulated_time_ns = adapter.EmulatedTimeNs();
                 {
                     std::lock_guard<std::mutex> operation_lock(operation->dispatch->mutex);
                     operation->dispatch->success = success;
                     operation->dispatch->continued = continued;
                     operation->dispatch->error = adapter_error;
                     operation->dispatch->registers = registers;
+                    operation->dispatch->emulated_time_ns = emulated_time_ns;
                     operation->dispatch->done = true;
                 }
                 if (success && continued) {
@@ -4332,12 +4499,14 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                     bool continued = false;
                     std::string dispatch_error;
                     RegisterSnapshot dispatch_registers;
+                    std::uint64_t dispatch_emulated_time_ns = 0;
                     {
                         std::lock_guard<std::mutex> dispatch_lock(operation->dispatch->mutex);
                         dispatch_success = operation->dispatch->success;
                         continued = operation->dispatch->continued;
                         dispatch_error = operation->dispatch->error;
                         dispatch_registers = operation->dispatch->registers;
+                        dispatch_emulated_time_ns = operation->dispatch->emulated_time_ns;
                     }
                     if (!dispatch_success) {
                         return Error(response_id, kErrorCapabilityUnavailable,
@@ -4349,6 +4518,9 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                     Impl::Session& active = *impl->session;
                     if (!continued) {
                         active.last_stop_kind = "step";
+                        active.last_stop_emulated_time_ns = dispatch_emulated_time_ns;
+                        active.has_last_stop_emulated_time = true;
+                        active.has_last_stop_time_limit = false;
                         active.last_stop_breakpoint_id.clear();
                         active.has_last_stop_breakpoint_address = false;
                         active.has_last_stop_breakpoint_hit_count = false;
@@ -5253,6 +5425,9 @@ void AgentServer::CompleteTargetTerminationOnEmulationThread(const std::shared_p
     active.trace.Stop();
     active.hardware_trace_active = false;
     active.last_stop_kind = "session_stop";
+    active.last_stop_emulated_time_ns = adapter.EmulatedTimeNs();
+    active.has_last_stop_emulated_time = true;
+    active.has_last_stop_time_limit = false;
     active.last_stop_message.clear();
     active.last_stop_breakpoint_id.clear();
     active.has_last_stop_breakpoint_address = false;
@@ -5289,6 +5464,12 @@ void AgentServer::OnDebuggerStopped(const std::shared_ptr<Impl>& impl,
     std::string watchpoint_register_error;
     const bool has_watchpoint_registers = has_watchpoint_hit &&
             adapter.GetRegisters(&watchpoint_registers, &watchpoint_register_error);
+    const std::uint64_t stop_emulated_time_ns = adapter.EmulatedTimeNs();
+    std::uint64_t time_limit_deadline_ns = 0;
+    std::uint64_t time_limit_actual_ns = 0;
+    const bool time_limit_hit = adapter.ConsumeEmulatedTimeLimitHit(
+            &time_limit_deadline_ns, &time_limit_actual_ns);
+    adapter.CancelEmulatedTimeLimit();
     std::vector<TraceSample> trace_samples;
     bool native_trace_active = false;
     std::string trace_error;
@@ -5326,10 +5507,23 @@ void AgentServer::OnDebuggerStopped(const std::shared_ptr<Impl>& impl,
     }
     impl->session->state = Impl::SessionState::Stopped;
     impl->session->last_stop_kind = startup ? "startup" :
-            (native_breakpoint != 0 ? "breakpoint" :
-             (!impl->session->pending_stop_kind.empty() ? impl->session->pending_stop_kind :
-              (trace_completed ? "pause" : "breakpoint")));
+            (time_limit_hit ? "emulated_time_limit" :
+             (native_breakpoint != 0 ? "breakpoint" :
+              (!impl->session->pending_stop_kind.empty() ? impl->session->pending_stop_kind :
+               (trace_completed ? "pause" : "breakpoint"))));
     impl->session->last_stop_message.clear();
+    impl->session->last_stop_emulated_time_ns = time_limit_hit ?
+            time_limit_actual_ns : stop_emulated_time_ns;
+    impl->session->has_last_stop_emulated_time = true;
+    impl->session->has_last_stop_time_limit = impl->session->emulated_time_limit_active;
+    impl->session->last_stop_time_limit_reached = time_limit_hit;
+    impl->session->last_stop_time_limit_start_ns =
+            impl->session->emulated_time_limit_start_ns;
+    impl->session->last_stop_time_limit_deadline_ns = time_limit_hit ?
+            time_limit_deadline_ns : impl->session->emulated_time_limit_deadline_ns;
+    impl->session->last_stop_time_limit_duration_ns =
+            impl->session->emulated_time_limit_duration_ns;
+    impl->session->emulated_time_limit_active = false;
     impl->session->last_stop_segment = segment;
     impl->session->last_stop_instruction_pointer = instruction_pointer;
     impl->session->last_stop_breakpoint_id.clear();
@@ -5419,6 +5613,8 @@ void AgentServer::OnProgramExited(const std::shared_ptr<Impl>& impl,
         return;
 
     AgentRuntime& adapter = *impl->runtime;
+    const std::uint64_t stop_emulated_time_ns = adapter.EmulatedTimeNs();
+    adapter.CancelEmulatedTimeLimit();
     if (active.hardware_trace_active) {
         HardwareTracePage hardware_status;
         std::string cleanup_error;
@@ -5437,6 +5633,14 @@ void AgentServer::OnProgramExited(const std::shared_ptr<Impl>& impl,
     active.exit_code = exit_code;
     active.exit_was_tsr = tsr;
     active.last_stop_kind = "program_exit";
+    active.last_stop_emulated_time_ns = stop_emulated_time_ns;
+    active.has_last_stop_emulated_time = true;
+    active.has_last_stop_time_limit = active.emulated_time_limit_active;
+    active.last_stop_time_limit_reached = false;
+    active.last_stop_time_limit_start_ns = active.emulated_time_limit_start_ns;
+    active.last_stop_time_limit_deadline_ns = active.emulated_time_limit_deadline_ns;
+    active.last_stop_time_limit_duration_ns = active.emulated_time_limit_duration_ns;
+    active.emulated_time_limit_active = false;
     active.last_stop_message.clear();
     active.last_stop_breakpoint_id.clear();
     active.has_last_stop_breakpoint_address = false;

@@ -281,13 +281,21 @@ class AgentClient:
         return _operation(self.call("execution.continue", {"session_id": session_id}, request_id))
 
     def run_until(self, session_id: str, predicate: RunUntilPredicate,
+                  max_emulated_ns: int | None = None,
                   request_id: str | None = None) -> RunUntilOperation:
         if not isinstance(predicate, RunUntilPredicate):
             raise TypeError("predicate must be a RunUntilPredicate")
-        result = self.call("execution.run_until", {
+        if (max_emulated_ns is not None and
+                (not isinstance(max_emulated_ns, int) or isinstance(max_emulated_ns, bool) or
+                 not 0 < max_emulated_ns <= 0xffffffffffffffff)):
+            raise ValueError("max_emulated_ns must be a positive 64-bit integer")
+        params: dict[str, Any] = {
             "session_id": session_id,
             "predicate": predicate.to_rpc(),
-        }, request_id)
+        }
+        if max_emulated_ns is not None:
+            params["max_emulated_ns"] = max_emulated_ns
+        result = self.call("execution.run_until", params, request_id)
         return RunUntilOperation(
             id=_string(result, "operation_id"),
             session_id=_string(result, "session_id"),
@@ -716,7 +724,8 @@ class AgentClient:
             except ValueError as error:
                 raise AgentProtocolError(str(error)) from error
             events.append(TraceEvent(
-                _integer(entry, "sequence"), MemoryAddress.from_rpc(_object(entry, "address")),
+                _integer(entry, "sequence"), _integer(entry, "emulated_time_ns"),
+                MemoryAddress.from_rpc(_object(entry, "address")),
                 _string(entry, "instruction"), {str(name): _string(changes, str(name)) for name in changes},
                 effects,
             ))
