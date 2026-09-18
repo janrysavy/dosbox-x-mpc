@@ -360,7 +360,7 @@ switch (inst.code.op) {
 		FillFlags();
 		if (((inst.entry & 0xFF)==0xcc) && DEBUG_Breakpoint()) 
 			return (Bits)debugCallback;
-		else if (DEBUG_IntBreakpoint(inst_op1_b)) 
+		else if (DEBUG_IntBreakpoint(inst_op1_b, true))
 			return (Bits)debugCallback;
 #endif
 		CPU_SW_Interrupt(inst_op1_b,GetIP());

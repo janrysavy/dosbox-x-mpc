@@ -23,7 +23,7 @@
 void DEBUG_SetupConsole(void);
 void DEBUG_DrawScreen(void);
 bool DEBUG_Breakpoint(void);
-bool DEBUG_IntBreakpoint(uint8_t intNum);
+bool DEBUG_IntBreakpoint(uint8_t intNum, bool software);
 void DEBUG_Enable(bool pressed);
 void DEBUG_CheckExecuteBreakpoint(uint16_t seg, uint32_t off);
 bool DEBUG_ExitLoop(void);
@@ -45,6 +45,11 @@ bool DEBUG_AgentResumeAfterTerminate(void);
 bool DEBUG_AgentCanStartTarget(void);
 uint64_t DEBUG_AgentEntryBreakpointSequence(void);
 bool DEBUG_AgentCreateExecutionBreakpoint(uint16_t seg, uint32_t off, bool once, uintptr_t* handle);
+bool DEBUG_AgentCreateInterruptBreakpoint(uint8_t int_num,
+                                          uint16_t ah,
+                                          uint16_t al,
+                                          bool once,
+                                          uintptr_t* handle);
 bool DEBUG_AgentCreateMemoryBreakpoint(uint16_t seg, uint32_t off, bool protected_mode, bool linear, uintptr_t* handle);
 struct DEBUG_AgentWatchpointHit {
     uintptr_t handle = 0;
@@ -73,6 +78,11 @@ struct DEBUG_AgentBreakpointPolicy {
 struct DEBUG_AgentBreakpointHit {
     uintptr_t handle = 0;
     uint64_t hit_count = 0;
+    bool interrupt = false;
+    bool software = false;
+    uint8_t interrupt_number = 0;
+    uint8_t ah = 0;
+    uint8_t al = 0;
 };
 bool DEBUG_AgentConfigureBreakpoint(uintptr_t handle,
                                     const DEBUG_AgentBreakpointPolicy* policy);

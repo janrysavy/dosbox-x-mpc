@@ -326,9 +326,34 @@ increment `hit_count`. `skip=1` ignores the first such match; `every=2` then
 stops on the first eligible match and every second match after it. The stop
 reason reports the selected `hit_count`, and create/list return the normalized
 condition and filter. Supported lowercase registers and `eq`/`ne` operators
-come from `capabilities["breakpoints"]`. Register conditions are deliberately
-limited to execution breakpoints; hit filters also apply to exact access
+come from `capabilities["breakpoints"]`. Register conditions apply to execution
+and software-interrupt breakpoints; hit filters also apply to exact access
 watchpoints.
+
+Software-interrupt breakpoints describe the event directly instead of guessing
+the address stored in the interrupt vector table:
+
+```python
+interrupt = agent.create_interrupt_breakpoint(
+    session.id,
+    0x21,
+    ah=0x4C,
+    once=True,
+)
+operation = agent.continue_(session.id)
+reason = agent.wait(session.id, operation.id, timeout_ms=5000).session.stop_reason
+assert reason.breakpoint_id == interrupt.id
+assert reason.event.number == 0x21
+assert reason.event.ah == 0x4C
+assert reason.event.phase == "before_handler"
+```
+
+The selector requires an interrupt number and optionally filters AH and AL. It
+matches only guest software `INT` instructions, not hardware interrupts or CPU
+exceptions with the same vector number. The stop reason reports the actual
+number, AH, and AL. `phase=before_handler` means DOS or BIOS has not handled the
+call yet; continuing executes the interrupted instruction normally. Capability
+fields `software_interrupt` and `interrupt_phase` advertise this contract.
 
 ### 6.4 读取寄存器和内存
 

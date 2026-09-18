@@ -22,6 +22,7 @@ from .models import (
     DosMemoryBlock,
     DosMemoryMap,
     DosProgramLoad,
+    InterruptBreakpoint,
     MemoryAddress,
     MemoryRead,
     MemoryWrite,
@@ -433,6 +434,25 @@ class AgentClient:
                                       condition=condition, hit_filter=hit_filter,
                                       request_id=request_id)
 
+    def create_interrupt_breakpoint(self, session_id: str, number: int, *,
+                                    ah: int | None = None, al: int | None = None,
+                                    once: bool = False,
+                                    condition: BreakpointCondition | None = None,
+                                    hit_filter: BreakpointHitFilter = BreakpointHitFilter(),
+                                    request_id: str | None = None) -> Breakpoint:
+        event = InterruptBreakpoint(number=number, ah=ah, al=al)
+        params: dict[str, Any] = {
+            "session_id": session_id,
+            "kind": "interrupt",
+            "event": event.to_rpc(),
+            "once": once,
+            "hit_filter": hit_filter.to_rpc(),
+        }
+        if condition is not None:
+            params["condition"] = condition.to_rpc()
+        result = self.call("breakpoints.create", params, request_id)
+        return self._breakpoint(result, enabled=True)
+
     def create_breakpoint(self, session_id: str, kind: str, address: MemoryAddress, *, length: int = 1,
                           once: bool = False, condition: BreakpointCondition | None = None,
                           hit_filter: BreakpointHitFilter = BreakpointHitFilter(),
@@ -454,17 +474,30 @@ class AgentClient:
         if condition is not None:
             params["condition"] = condition.to_rpc()
         result = self.call("breakpoints.create", params, request_id)
-        encoded_condition = result.get("condition")
+        return self._breakpoint(result, enabled=True)
+
+    @staticmethod
+    def _breakpoint(value: Mapping[str, Any], *, enabled: bool) -> Breakpoint:
+        kind = _string(value, "kind")
+        encoded_condition = value.get("condition")
+        encoded_address = value.get("address")
+        encoded_event = value.get("event")
         return Breakpoint(
-            id=_string(result, "breakpoint_id"),
-            kind=_string(result, "kind"),
-            address=MemoryAddress.from_rpc(_object(result, "address")),
-            once=bool(result.get("once")),
-            length=_integer(result, "length"),
-            enabled=True,
-            condition=BreakpointCondition.from_rpc(_object_value(encoded_condition, "condition"))
-            if encoded_condition is not None else None,
-            hit_filter=BreakpointHitFilter.from_rpc(_object(result, "hit_filter")),
+            id=_string(value, "breakpoint_id"),
+            kind=kind,
+            address=MemoryAddress.from_rpc(
+                _object_value(encoded_address, "breakpoint.address")
+            ) if encoded_address is not None else None,
+            once=bool(value.get("once")),
+            length=_integer(value, "length") if value.get("length") is not None else 0,
+            enabled=enabled,
+            condition=BreakpointCondition.from_rpc(
+                _object_value(encoded_condition, "condition")
+            ) if encoded_condition is not None else None,
+            hit_filter=BreakpointHitFilter.from_rpc(_object(value, "hit_filter")),
+            event=InterruptBreakpoint.from_rpc(
+                _object_value(encoded_event, "breakpoint.event")
+            ) if encoded_event is not None else None,
         )
 
     def list_breakpoints(self, session_id: str, request_id: str | None = None) -> tuple[Breakpoint, ...]:
@@ -475,19 +508,7 @@ class AgentClient:
         parsed: list[Breakpoint] = []
         for value in values:
             entry = _object_value(value, "breakpoint")
-            encoded_condition = entry.get("condition")
-            parsed.append(Breakpoint(
-                id=_string(entry, "breakpoint_id"),
-                kind=_string(entry, "kind"),
-                address=MemoryAddress.from_rpc(_object(entry, "address")),
-                once=bool(entry.get("once")),
-                length=_integer(entry, "length"),
-                enabled=bool(entry.get("enabled")),
-                condition=BreakpointCondition.from_rpc(
-                    _object_value(encoded_condition, "condition")
-                ) if encoded_condition is not None else None,
-                hit_filter=BreakpointHitFilter.from_rpc(_object(entry, "hit_filter")),
-            ))
+            parsed.append(self._breakpoint(entry, enabled=bool(entry.get("enabled"))))
         return tuple(parsed)
 
     def delete_breakpoint(self, session_id: str, breakpoint_id: str, request_id: str | None = None) -> int:

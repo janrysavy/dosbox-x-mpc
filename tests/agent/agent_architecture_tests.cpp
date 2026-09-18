@@ -185,7 +185,9 @@ TEST(AgentProtocol, ReportsBuildCapabilitiesAndLimits)
     EXPECT_NE(std::string::npos, response.find("\"exact_access_requires_normal_core\":true"));
     EXPECT_NE(std::string::npos, response.find("\"condition_registers\":[\"eax\""));
     EXPECT_NE(std::string::npos, response.find("\"condition_operators\":[\"eq\",\"ne\"]"));
-    EXPECT_NE(std::string::npos, response.find("\"conditional_kinds\":[\"execution\"]"));
+    EXPECT_NE(std::string::npos, response.find("\"software_interrupt\":true"));
+    EXPECT_NE(std::string::npos, response.find("\"interrupt_phase\":\"before_handler\""));
+    EXPECT_NE(std::string::npos, response.find("\"conditional_kinds\":[\"execution\",\"interrupt\"]"));
     EXPECT_NE(std::string::npos, response.find("\"hit_filter\":true"));
 }
 
@@ -255,7 +257,56 @@ TEST(AgentProtocol, ValidatesExactWatchpointKindsAndLengthsBeforeDispatch)
             "\"condition\":{\"register\":\"ax\",\"operator\":\"eq\",\"value\":\"0x00000001\"},"
             "\"address\":{\"space\":\"linear\",\"offset\":\"0x00010200\"}}}");
     EXPECT_NE(std::string::npos, watch_condition.find("\"code\":-32602"));
-    EXPECT_NE(std::string::npos, watch_condition.find("only on execution breakpoints"));
+    EXPECT_NE(std::string::npos, watch_condition.find("only on execution and interrupt breakpoints"));
+}
+
+TEST(AgentProtocol, CreatesAndListsTypedSoftwareInterruptBreakpoints)
+{
+    dosbox_agent::AgentServer server;
+    std::string error;
+    ASSERT_TRUE(server.StartForTest(MakeTestConfig(), &error)) << error;
+    StartFixtureSession(&server);
+
+    const std::string missing_event = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"missing-event\",\"method\":\"breakpoints.create\","
+            "\"params\":{\"session_id\":\"ses-1\",\"kind\":\"interrupt\"}}");
+    EXPECT_NE(std::string::npos, missing_event.find("\"code\":-32602"));
+    EXPECT_NE(std::string::npos, missing_event.find("requires event as an object"));
+
+    const std::string malformed_filter = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"bad-event\",\"method\":\"breakpoints.create\","
+            "\"params\":{\"session_id\":\"ses-1\",\"kind\":\"interrupt\","
+            "\"event\":{\"type\":\"software_interrupt\",\"number\":\"0x21\",\"ah\":\"0x4C00\"}}}");
+    EXPECT_NE(std::string::npos, malformed_filter.find("\"code\":-32602"));
+    EXPECT_NE(std::string::npos, malformed_filter.find("optional ah/al 0xNN"));
+
+    const std::string mixed_schema = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"mixed\",\"method\":\"breakpoints.create\","
+            "\"params\":{\"session_id\":\"ses-1\",\"kind\":\"interrupt\","
+            "\"address\":{\"space\":\"segmented\",\"segment\":\"0x1000\",\"offset\":\"0x00000100\"},"
+            "\"event\":{\"type\":\"software_interrupt\",\"number\":\"0x21\"}}}");
+    EXPECT_NE(std::string::npos, mixed_schema.find("\"code\":-32602"));
+    EXPECT_NE(std::string::npos, mixed_schema.find("event instead of address/length"));
+
+    const std::string created = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"create-int\",\"method\":\"breakpoints.create\","
+            "\"params\":{\"session_id\":\"ses-1\",\"kind\":\"interrupt\",\"once\":true,"
+            "\"condition\":{\"register\":\"bx\",\"operator\":\"ne\",\"value\":\"0x00001234\"},"
+            "\"hit_filter\":{\"skip\":2,\"every\":3},"
+            "\"event\":{\"type\":\"software_interrupt\",\"number\":\"0x21\",\"ah\":\"0x4C\"}}}");
+    EXPECT_NE(std::string::npos, created.find("\"breakpoint_id\":\"bp-1\""));
+    EXPECT_NE(std::string::npos, created.find("\"kind\":\"interrupt\""));
+    EXPECT_NE(std::string::npos, created.find("\"event\":{\"ah\":\"0x4C\",\"number\":\"0x21\",\"type\":\"software_interrupt\"}"));
+    EXPECT_EQ(std::string::npos, created.find("\"address\""));
+    EXPECT_EQ(std::string::npos, created.find("\"length\""));
+
+    const std::string listed = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"list-int\",\"method\":\"breakpoints.list\","
+            "\"params\":{\"session_id\":\"ses-1\"}}");
+    EXPECT_NE(std::string::npos, listed.find("\"breakpoint_id\":\"bp-1\""));
+    EXPECT_NE(std::string::npos, listed.find("\"skip\":2"));
+    EXPECT_NE(std::string::npos, listed.find("\"every\":3"));
+    EXPECT_EQ(std::string::npos, listed.find("\"address\""));
 }
 
 TEST(AgentVideo, ReturnsOneAtomicTypedSnapshotAndRejectsRunningTargets)

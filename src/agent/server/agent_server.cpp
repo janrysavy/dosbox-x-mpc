@@ -235,6 +235,55 @@ static JsonValue EncodeMemoryAddress(const MemoryAddress& address)
     return encoded;
 }
 
+static bool ParseInterruptSelector(const JsonValue& params,
+                                   InterruptBreakpointSelector* selector,
+                                   std::string* error)
+{
+    const JsonValue* event = params.Find("event");
+    if (event == NULL || event->type != JsonType::Object) {
+        *error = "interrupt breakpoint requires event as an object";
+        return false;
+    }
+    std::string type;
+    const JsonValue* number = event->Find("number");
+    const JsonValue* ah = event->Find("ah");
+    const JsonValue* al = event->Find("al");
+    std::uint32_t parsed_number = 0;
+    std::uint32_t parsed_ah = 0;
+    std::uint32_t parsed_al = 0;
+    if (!GetString(*event, "type", &type) || type != "software_interrupt" ||
+        number == NULL || !ParseFixedWidthHex(*number, 2, &parsed_number) ||
+        (ah != NULL && !ParseFixedWidthHex(*ah, 2, &parsed_ah)) ||
+        (al != NULL && !ParseFixedWidthHex(*al, 2, &parsed_al))) {
+        *error = "event requires type software_interrupt, number 0xNN, and optional ah/al 0xNN";
+        return false;
+    }
+    selector->number = static_cast<std::uint8_t>(parsed_number);
+    selector->has_ah = ah != NULL;
+    selector->ah = static_cast<std::uint8_t>(parsed_ah);
+    selector->has_al = al != NULL;
+    selector->al = static_cast<std::uint8_t>(parsed_al);
+    return true;
+}
+
+static JsonValue EncodeInterruptSelector(const InterruptBreakpointSelector& selector)
+{
+    const auto hex_byte = [](const std::uint8_t value) {
+        std::ostringstream encoded;
+        encoded << "0x" << std::uppercase << std::hex << std::setw(2)
+                << std::setfill('0') << static_cast<unsigned int>(value);
+        return encoded.str();
+    };
+    JsonValue event = Object();
+    Add(&event, "type", String("software_interrupt"));
+    Add(&event, "number", String(hex_byte(selector.number)));
+    if (selector.has_ah)
+        Add(&event, "ah", String(hex_byte(selector.ah)));
+    if (selector.has_al)
+        Add(&event, "al", String(hex_byte(selector.al)));
+    return event;
+}
+
 static std::string EncodeBase64(const std::vector<std::uint8_t>& data)
 {
     static const char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -572,6 +621,8 @@ public:
         bool has_last_stop_breakpoint_address = false;
         std::uint64_t last_stop_breakpoint_hit_count = 0;
         bool has_last_stop_breakpoint_hit_count = false;
+        InterruptEvent last_interrupt_event;
+        bool has_last_interrupt_event = false;
         WatchpointHit last_watchpoint_hit;
         bool has_last_watchpoint_hit = false;
         RegisterSnapshot last_watchpoint_registers;
@@ -657,6 +708,12 @@ public:
                                   NativeBreakpoint* breakpoint,
                                   MemoryAccessError* access_error,
                                   std::string* error) const = 0;
+    virtual bool CreateInterruptBreakpoint(const InterruptBreakpointSelector& selector,
+                                           bool once,
+                                           const BreakpointCondition& condition,
+                                           const BreakpointHitFilter& hit_filter,
+                                           NativeBreakpoint* breakpoint,
+                                           std::string* error) const = 0;
     virtual bool DeleteBreakpoint(const NativeBreakpoint& breakpoint, std::string* error) const = 0;
     virtual bool ConsumeLastBreakpointHit(BreakpointHit* hit) const = 0;
     virtual bool ConsumeLastWatchpointHit(WatchpointHit* hit) const = 0;
@@ -702,6 +759,7 @@ public:
     AGENT_RUNTIME_FORWARD(ReadMemory, bool ReadMemory(const MemoryAddress& address, std::size_t length, std::vector<std::uint8_t>* data, MemoryAccessError* access_error, std::string* error) const, (address, length, data, access_error, error))
     AGENT_RUNTIME_FORWARD(WriteMemory, bool WriteMemory(const MemoryAddress& address, const std::vector<std::uint8_t>& data, std::vector<std::uint8_t>* after, MemoryAccessError* access_error, std::string* error) const, (address, data, after, access_error, error))
     AGENT_RUNTIME_FORWARD(CreateBreakpoint, bool CreateBreakpoint(BreakpointKind kind, const MemoryAddress& address, std::uint32_t length, bool once, const BreakpointCondition& condition, const BreakpointHitFilter& hit_filter, NativeBreakpoint* breakpoint, MemoryAccessError* access_error, std::string* error) const, (kind, address, length, once, condition, hit_filter, breakpoint, access_error, error))
+    AGENT_RUNTIME_FORWARD(CreateInterruptBreakpoint, bool CreateInterruptBreakpoint(const InterruptBreakpointSelector& selector, bool once, const BreakpointCondition& condition, const BreakpointHitFilter& hit_filter, NativeBreakpoint* breakpoint, std::string* error) const, (selector, once, condition, hit_filter, breakpoint, error))
     AGENT_RUNTIME_FORWARD(DeleteBreakpoint, bool DeleteBreakpoint(const NativeBreakpoint& breakpoint, std::string* error) const, (breakpoint, error))
     AGENT_RUNTIME_FORWARD(ConsumeLastBreakpointHit, bool ConsumeLastBreakpointHit(BreakpointHit* hit) const, (hit))
     AGENT_RUNTIME_FORWARD(ConsumeLastWatchpointHit, bool ConsumeLastWatchpointHit(WatchpointHit* hit) const, (hit))
@@ -799,6 +857,24 @@ public:
     AGENT_RUNTIME_UNAVAILABLE(ReadMemory, bool ReadMemory(const MemoryAddress&, std::size_t, std::vector<std::uint8_t>*, MemoryAccessError*, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(WriteMemory, bool WriteMemory(const MemoryAddress&, const std::vector<std::uint8_t>&, std::vector<std::uint8_t>*, MemoryAccessError*, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(CreateBreakpoint, bool CreateBreakpoint(BreakpointKind, const MemoryAddress&, std::uint32_t, bool, const BreakpointCondition&, const BreakpointHitFilter&, NativeBreakpoint*, MemoryAccessError*, std::string* error) const)
+    bool CreateInterruptBreakpoint(const InterruptBreakpointSelector& selector,
+                                   const bool once,
+                                   const BreakpointCondition& condition,
+                                   const BreakpointHitFilter& hit_filter,
+                                   NativeBreakpoint* breakpoint,
+                                   std::string*) const override
+    {
+        if (breakpoint == NULL)
+            return false;
+        breakpoint->handle = 0x1a21;
+        breakpoint->kind = BreakpointKind::Interrupt;
+        breakpoint->interrupt = selector;
+        breakpoint->length = 0;
+        breakpoint->once = once;
+        breakpoint->condition = condition;
+        breakpoint->hit_filter = hit_filter;
+        return true;
+    }
     AGENT_RUNTIME_UNAVAILABLE(DeleteBreakpoint, bool DeleteBreakpoint(const NativeBreakpoint&, std::string* error) const)
     bool ConsumeLastBreakpointHit(BreakpointHit*) const override { return false; }
     bool ConsumeLastWatchpointHit(WatchpointHit*) const override { return false; }
@@ -976,6 +1052,7 @@ static const char* BreakpointKindName(const BreakpointKind kind)
 {
     switch (kind) {
     case BreakpointKind::Execution: return "execution";
+    case BreakpointKind::Interrupt: return "interrupt";
     case BreakpointKind::MemoryChange: return "memory_change";
     case BreakpointKind::MemoryRead: return "memory_read";
     case BreakpointKind::MemoryWrite: return "memory_write";
@@ -1230,6 +1307,22 @@ static JsonValue StopReason(const AgentServer::Impl::Session& session)
         Add(&stop, "breakpoint_id", String(session.last_stop_breakpoint_id));
     if (session.has_last_stop_breakpoint_hit_count)
         Add(&stop, "hit_count", Number(session.last_stop_breakpoint_hit_count));
+    if (session.has_last_interrupt_event) {
+        JsonValue event = Object();
+        Add(&event, "type", String("software_interrupt"));
+        Add(&event, "phase", String("before_handler"));
+        InterruptBreakpointSelector actual;
+        actual.number = session.last_interrupt_event.number;
+        actual.has_ah = true;
+        actual.ah = session.last_interrupt_event.ah;
+        actual.has_al = true;
+        actual.al = session.last_interrupt_event.al;
+        const JsonValue encoded = EncodeInterruptSelector(actual);
+        Add(&event, "number", *encoded.Find("number"));
+        Add(&event, "ah", *encoded.Find("ah"));
+        Add(&event, "al", *encoded.Find("al"));
+        Add(&stop, "event", event);
+    }
     if (session.last_stop_kind == "program_exit") {
         Add(&stop, "psp", Number(session.exit_psp));
         Add(&stop, "exit_code", Number(session.exit_code));
@@ -1600,6 +1693,12 @@ static std::string Capabilities(const AgentConfig& config)
     Add(&dos_capabilities, "loader_metadata", JsonValue::Bool(true));
     Add(&result, "dos", dos_capabilities);
     JsonValue breakpoints = Object();
+#if C_DEBUG
+    Add(&breakpoints, "software_interrupt", JsonValue::Bool(true));
+#else
+    Add(&breakpoints, "software_interrupt", JsonValue::Bool(false));
+#endif
+    Add(&breakpoints, "interrupt_phase", String("before_handler"));
 #ifdef C_HEAVY_DEBUG
     Add(&breakpoints, "memory_change", JsonValue::Bool(true));
     Add(&breakpoints, "memory_read", JsonValue::Bool(true));
@@ -1640,6 +1739,7 @@ static std::string Capabilities(const AgentConfig& config)
     Add(&breakpoints, "condition_operators", condition_operators);
     JsonValue conditional_kinds = JsonValue::Array();
     conditional_kinds.array.push_back(String("execution"));
+    conditional_kinds.array.push_back(String("interrupt"));
     Add(&breakpoints, "conditional_kinds", conditional_kinds);
     Add(&breakpoints, "hit_filter", JsonValue::Bool(true));
     Add(&result, "breakpoints", breakpoints);
@@ -2486,6 +2586,7 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
             session->last_stop_breakpoint_id.clear();
             session->has_last_stop_breakpoint_address = false;
             session->has_last_stop_breakpoint_hit_count = false;
+            session->has_last_interrupt_event = false;
             session->has_last_watchpoint_hit = false;
             session->has_last_watchpoint_registers = false;
             ++session->state_revision;
@@ -2579,8 +2680,12 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                 Add(&entry, "kind", String(BreakpointKindName(item->second.native.kind)));
                 Add(&entry, "enabled", JsonValue::Bool(item->second.enabled));
                 Add(&entry, "once", JsonValue::Bool(item->second.native.once));
-                Add(&entry, "address", EncodeMemoryAddress(item->second.native.address));
-                Add(&entry, "length", Number(item->second.native.length));
+                if (item->second.native.kind == BreakpointKind::Interrupt) {
+                    Add(&entry, "event", EncodeInterruptSelector(item->second.native.interrupt));
+                } else {
+                    Add(&entry, "address", EncodeMemoryAddress(item->second.native.address));
+                    Add(&entry, "length", Number(item->second.native.length));
+                }
                 Add(&entry, "condition", EncodeBreakpointCondition(item->second.native.condition));
                 Add(&entry, "hit_filter", EncodeBreakpointHitFilter(item->second.native.hit_filter));
                 entries.array.push_back(entry);
@@ -2592,31 +2697,57 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
         std::string kind_name;
         std::string validation_error;
         MemoryAddress address;
+        InterruptBreakpointSelector interrupt;
         bool once = false;
         std::uint32_t length = 1;
         BreakpointCondition condition;
         BreakpointHitFilter hit_filter;
         const JsonValue* once_value = parsed.params.Find("once");
         const JsonValue* length_value = parsed.params.Find("length");
-        if (!GetString(parsed.params, "kind", &kind_name) ||
-            (kind_name != "execution" && kind_name != "memory_change" &&
-             kind_name != "memory_read" && kind_name != "memory_write" &&
-             kind_name != "memory_access") ||
-            !ParseMemoryAddress(parsed.params, "breakpoints.create", &address, &validation_error) ||
-            !ParseBreakpointPolicy(parsed.params, &condition, &hit_filter, &validation_error) ||
-            (once_value != NULL && !GetBool(parsed.params, "once", &once)) ||
-            (length_value != NULL && (!GetUnsignedInteger(*length_value, &length) || length == 0))) {
+        const JsonValue* address_value = parsed.params.Find("address");
+        const JsonValue* event_value = parsed.params.Find("event");
+        bool valid = GetString(parsed.params, "kind", &kind_name) &&
+                (kind_name == "execution" || kind_name == "interrupt" ||
+                 kind_name == "memory_change" || kind_name == "memory_read" ||
+                 kind_name == "memory_write" || kind_name == "memory_access");
+        const bool interrupt_kind = valid && kind_name == "interrupt";
+        if (!valid)
+            validation_error = "breakpoints.create requires a supported kind";
+        else if (!ParseBreakpointPolicy(parsed.params, &condition, &hit_filter, &validation_error))
+            valid = false;
+        else if (once_value != NULL && !GetBool(parsed.params, "once", &once)) {
+            validation_error = "once must be boolean";
+            valid = false;
+        } else if (interrupt_kind) {
+            if (address_value != NULL || length_value != NULL) {
+                validation_error = "interrupt breakpoints use event instead of address/length";
+                valid = false;
+            } else {
+                valid = ParseInterruptSelector(parsed.params, &interrupt, &validation_error);
+            }
+        } else if (event_value != NULL) {
+            validation_error = "only interrupt breakpoints accept event";
+            valid = false;
+        } else {
+            valid = ParseMemoryAddress(parsed.params, "breakpoints.create", &address, &validation_error);
+            if (valid && length_value != NULL &&
+                (!GetUnsignedInteger(*length_value, &length) || length == 0)) {
+                validation_error = "length must be a positive integer";
+                valid = false;
+            }
+        }
+        if (!valid) {
             response = InvalidParams(parsed.id, validation_error.empty() ?
-                                     "breakpoints.create requires kind, address, optional positive length, and optional boolean once" : validation_error);
-        } else if (length > impl->config.max_memory_read_bytes) {
+                                     "breakpoints.create parameters are invalid" : validation_error);
+        } else if (!interrupt_kind && length > impl->config.max_memory_read_bytes) {
             response = Error(parsed.id, kErrorRequestTooLarge,
                              "breakpoint length exceeds max_memory_read_bytes", "REQUEST_TOO_LARGE");
         } else if ((kind_name == "execution" || kind_name == "memory_change") && length != 1) {
             response = InvalidParams(parsed.id,
                                      "execution and memory_change breakpoints require length 1");
-        } else if (condition.enabled && kind_name != "execution") {
+        } else if (condition.enabled && kind_name != "execution" && kind_name != "interrupt") {
             response = InvalidParams(parsed.id,
-                                     "register conditions are supported only on execution breakpoints");
+                                     "register conditions are supported only on execution and interrupt breakpoints");
         } else if (session->state == Impl::SessionState::Running) {
             response = SessionError(parsed.id, kErrorTargetRunning,
                                     "Target must be stopped before creating breakpoints", "TARGET_RUNNING", session);
@@ -2625,27 +2756,32 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                                     "Target must be stopped before creating breakpoints", "TARGET_NOT_STOPPED", session);
         } else {
             BreakpointKind kind = BreakpointKind::Execution;
-            if (kind_name == "memory_change") kind = BreakpointKind::MemoryChange;
+            if (kind_name == "interrupt") kind = BreakpointKind::Interrupt;
+            else if (kind_name == "memory_change") kind = BreakpointKind::MemoryChange;
             else if (kind_name == "memory_read") kind = BreakpointKind::MemoryRead;
             else if (kind_name == "memory_write") kind = BreakpointKind::MemoryWrite;
             else if (kind_name == "memory_access") kind = BreakpointKind::MemoryAccess;
 #ifndef C_HEAVY_DEBUG
-            if (kind != BreakpointKind::Execution) {
+            if (kind != BreakpointKind::Execution && kind != BreakpointKind::Interrupt) {
                 response = Error(parsed.id, kErrorCapabilityUnavailable,
                                  "Memory watchpoints require C_HEAVY_DEBUG", "CAPABILITY_UNAVAILABLE");
             } else
 #endif
             {
                 const std::shared_ptr<Impl::AdapterOperation> operation(new Impl::AdapterOperation());
-                if (SubmitEmulationCommandLocked(impl, [impl, operation, kind, address, length, once, condition, hit_filter](const std::uint64_t) {
+                if (SubmitEmulationCommandLocked(impl, [impl, operation, kind, address, interrupt, length, once, condition, hit_filter](const std::uint64_t) {
                         AgentRuntime& adapter = *impl->runtime;
                         std::string adapter_error;
                         MemoryAccessError access_error;
                         NativeBreakpoint breakpoint;
-                        const bool success = adapter.CreateBreakpoint(kind, address, length, once,
-                                                                      condition, hit_filter,
-                                                                      &breakpoint, &access_error,
-                                                                      &adapter_error);
+                        const bool success = kind == BreakpointKind::Interrupt ?
+                                adapter.CreateInterruptBreakpoint(interrupt, once, condition,
+                                                                  hit_filter, &breakpoint,
+                                                                  &adapter_error) :
+                                adapter.CreateBreakpoint(kind, address, length, once,
+                                                         condition, hit_filter,
+                                                         &breakpoint, &access_error,
+                                                         &adapter_error);
                         {
                             std::lock_guard<std::mutex> operation_lock(operation->mutex);
                             operation->success = success;
@@ -2673,7 +2809,7 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                         if (!operation->success) {
                             if (!operation->access_error.reason.empty())
                                 return AddressError(response_id, "Unable to resolve breakpoint address", address, operation->access_error);
-                            if (kind != BreakpointKind::Execution)
+                            if (kind != BreakpointKind::Execution && kind != BreakpointKind::Interrupt)
                                 return Error(response_id, kErrorCapabilityUnavailable,
                                              operation->error.empty() ? "Memory watchpoint is unavailable" : operation->error,
                                              "CAPABILITY_UNAVAILABLE");
@@ -2693,8 +2829,12 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                         Add(&result, "breakpoint_id", String(breakpoint.id));
                         Add(&result, "kind", String(kind_name));
                         Add(&result, "once", JsonValue::Bool(once));
-                        Add(&result, "address", EncodeMemoryAddress(breakpoint.native.address));
-                        Add(&result, "length", Number(length));
+                        if (kind == BreakpointKind::Interrupt) {
+                            Add(&result, "event", EncodeInterruptSelector(breakpoint.native.interrupt));
+                        } else {
+                            Add(&result, "address", EncodeMemoryAddress(breakpoint.native.address));
+                            Add(&result, "length", Number(length));
+                        }
                         Add(&result, "condition", EncodeBreakpointCondition(condition));
                         Add(&result, "hit_filter", EncodeBreakpointHitFilter(hit_filter));
                         return AGENT_MakeJsonRpcResult(response_id, result);
@@ -2937,6 +3077,7 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                         active.last_stop_breakpoint_id.clear();
                         active.has_last_stop_breakpoint_address = false;
                         active.has_last_stop_breakpoint_hit_count = false;
+                        active.has_last_interrupt_event = false;
                         active.has_last_watchpoint_hit = false;
                         active.has_last_watchpoint_registers = false;
                         active.last_stop_segment = dispatch_registers.cs;
@@ -3650,6 +3791,7 @@ void AgentServer::CompleteTargetTerminationOnEmulationThread(const std::shared_p
     active.last_stop_breakpoint_id.clear();
     active.has_last_stop_breakpoint_address = false;
     active.has_last_stop_breakpoint_hit_count = false;
+    active.has_last_interrupt_event = false;
     active.has_last_watchpoint_hit = false;
     active.has_last_watchpoint_registers = false;
     ++active.state_revision;
@@ -3726,6 +3868,7 @@ void AgentServer::OnDebuggerStopped(const std::shared_ptr<Impl>& impl,
     impl->session->last_stop_breakpoint_id.clear();
     impl->session->has_last_stop_breakpoint_address = false;
     impl->session->has_last_stop_breakpoint_hit_count = false;
+    impl->session->has_last_interrupt_event = false;
     impl->session->has_last_watchpoint_hit = false;
     impl->session->has_last_watchpoint_registers = false;
     if (!startup && impl->session->last_stop_kind == "breakpoint" && native_breakpoint != 0) {
@@ -3734,10 +3877,16 @@ void AgentServer::OnDebuggerStopped(const std::shared_ptr<Impl>& impl,
             if (item->second.native.handle != native_breakpoint)
                 continue;
             impl->session->last_stop_breakpoint_id = item->second.id;
-            impl->session->last_stop_breakpoint_address = item->second.native.address;
-            impl->session->has_last_stop_breakpoint_address = true;
+            if (item->second.native.kind != BreakpointKind::Interrupt) {
+                impl->session->last_stop_breakpoint_address = item->second.native.address;
+                impl->session->has_last_stop_breakpoint_address = true;
+            }
             impl->session->last_stop_breakpoint_hit_count = breakpoint_hit.hit_count;
             impl->session->has_last_stop_breakpoint_hit_count = true;
+            if (breakpoint_hit.interrupt.valid && breakpoint_hit.interrupt.software) {
+                impl->session->last_interrupt_event = breakpoint_hit.interrupt;
+                impl->session->has_last_interrupt_event = true;
+            }
             if (has_watchpoint_hit && watchpoint_hit.handle == native_breakpoint) {
                 impl->session->last_watchpoint_hit = watchpoint_hit;
                 impl->session->has_last_watchpoint_hit = true;
@@ -3803,6 +3952,7 @@ void AgentServer::OnProgramExited(const std::shared_ptr<Impl>& impl,
     active.last_stop_breakpoint_id.clear();
     active.has_last_stop_breakpoint_address = false;
     active.has_last_stop_breakpoint_hit_count = false;
+    active.has_last_interrupt_event = false;
     active.has_last_watchpoint_hit = false;
     active.has_last_watchpoint_registers = false;
     active.pending_stop_kind.clear();

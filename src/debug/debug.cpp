@@ -638,7 +638,7 @@ public:
 	CBreakpoint(void);
 	void					SetAddress		(uint16_t seg, uint32_t off)	{ location = (PhysPt)GetAddress(seg,off); type = BKPNT_PHYSICAL; segment = seg; offset = off; };
 	void					SetAddress		(PhysPt adr)				{ location = adr; type = BKPNT_PHYSICAL; };
-	void					SetInt			(uint8_t _intNr, uint16_t ah, uint16_t al)	{ intNr = _intNr; ahValue = ah; alValue = al; type = BKPNT_INTERRUPT; };
+	void					SetInt			(uint8_t _intNr, uint16_t ah, uint16_t al, bool software_only)	{ intNr = _intNr; ahValue = ah; alValue = al; softwareOnly = software_only; type = BKPNT_INTERRUPT; };
 	void					SetOnce			(bool _once)				{ once = _once; };
 	void					SetType			(EBreakpoint _type)			{ type = _type; };
 	void					SetValue		(uint8_t value)				{ ahValue = value; };
@@ -670,7 +670,7 @@ public:
 
 	// statics
 	static CBreakpoint*		AddBreakpoint		(uint16_t seg, uint32_t off, bool once);
-	static CBreakpoint*		AddIntBreakpoint	(uint8_t intNum, uint16_t ah, uint16_t al, bool once);
+	static CBreakpoint*		AddIntBreakpoint	(uint8_t intNum, uint16_t ah, uint16_t al, bool once, bool software_only = false);
 	static CBreakpoint*		AddMemBreakpoint	(uint16_t seg, uint32_t off);
 	static CBreakpoint*      AddAccessBreakpoint(uint32_t linear, uint32_t length,
 	                                             bool on_read, bool on_write, bool once);
@@ -680,7 +680,7 @@ public:
 	static void				ActivateBreakpoints	();
 	static void				ActivateBreakpointsExceptAt(PhysPt adr);
 	static bool				CheckBreakpoint		(uint16_t seg, uint32_t off);
-	static bool				CheckIntBreakpoint	(PhysPt adr, uint8_t intNr, uint16_t ahValue, uint16_t alValue);
+	static bool				CheckIntBreakpoint	(PhysPt adr, uint8_t intNr, uint16_t ahValue, uint16_t alValue, bool software);
 	static CBreakpoint*		FindPhysBreakpoint	(uint16_t seg, uint32_t off, bool once);
 	static CBreakpoint*		FindOtherActiveBreakpoint(PhysPt adr, CBreakpoint* skip);
 	static bool				IsBreakpoint		(uint16_t seg, uint32_t off);
@@ -715,6 +715,7 @@ private:
 	uint64_t        matchCount;
 	bool            conditionEnabled;
 	bool            conditionEqual;
+	bool            softwareOnly;
 	// Shared
 	bool		active;
 	bool		once;
@@ -740,6 +741,11 @@ static uint32_t agent_watch_instruction_ip = 0;
 #endif
 
 static uint64_t agent_breakpoint_hit_count = 0;
+static bool agent_breakpoint_interrupt = false;
+static bool agent_breakpoint_software = false;
+static uint8_t agent_breakpoint_interrupt_number = 0;
+static uint8_t agent_breakpoint_interrupt_ah = 0;
+static uint8_t agent_breakpoint_interrupt_al = 0;
 
 #if defined(C_DOSBOX_AGENT)
 static bool DEBUG_AgentReadConditionRegister(const std::string& name,
@@ -790,7 +796,7 @@ oldData(0xCC),
 #endif
 segment(0),offset(0),intNr(0),ahValue(0),alValue(0),watchLength(0),
 watchRead(false),watchWrite(false),conditionValue(0),filterSkip(0),filterEvery(1),
-matchCount(0),conditionEnabled(false),conditionEqual(true),active(false),once(false) { }
+matchCount(0),conditionEnabled(false),conditionEqual(true),softwareOnly(false),active(false),once(false) { }
 
 bool CBreakpoint::ConfigurePolicy(const DEBUG_AgentBreakpointPolicy& policy)
 {
@@ -886,10 +892,10 @@ CBreakpoint* CBreakpoint::AddBreakpoint(uint16_t seg, uint32_t off, bool once)
 	return bp;
 }
 
-CBreakpoint* CBreakpoint::AddIntBreakpoint(uint8_t intNum, uint16_t ah, uint16_t al, bool once)
+CBreakpoint* CBreakpoint::AddIntBreakpoint(uint8_t intNum, uint16_t ah, uint16_t al, bool once, bool software_only)
 {
 	CBreakpoint* bp = new CBreakpoint();
-	bp->SetInt			(intNum,ah,al);
+	bp->SetInt			(intNum,ah,al,software_only);
 	bp->SetOnce			(once);
 	BPoints.push_front	(bp);
 	return bp;
@@ -1001,6 +1007,7 @@ bool CBreakpoint::CheckBreakpoint(uint16_t seg, uint32_t off)
 			// Found
 			lastTriggered = bp;
 			agent_breakpoint_hit_count = bp->GetMatchCount();
+			agent_breakpoint_interrupt = false;
 			if (bp->GetOnce()) {
 				// delete it, if it should only be used once
 				(BPoints.erase)(i);
@@ -1049,6 +1056,7 @@ bool CBreakpoint::CheckBreakpoint(uint16_t seg, uint32_t off)
 					if (!bp->MatchesPolicy()) continue;
 					lastTriggered = bp;
 					agent_breakpoint_hit_count = bp->GetMatchCount();
+					agent_breakpoint_interrupt = false;
 					return true;
 				}
 			}
@@ -1058,7 +1066,7 @@ bool CBreakpoint::CheckBreakpoint(uint16_t seg, uint32_t off)
 	return false;
 }
 
-bool CBreakpoint::CheckIntBreakpoint(PhysPt adr, uint8_t intNr, uint16_t ahValue, uint16_t alValue)
+bool CBreakpoint::CheckIntBreakpoint(PhysPt adr, uint8_t intNr, uint16_t ahValue, uint16_t alValue, bool software)
 // Checks if interrupt breakpoint is valid and should stop execution
 {
 	if (BPoints.empty()) return false;
@@ -1070,10 +1078,17 @@ bool CBreakpoint::CheckIntBreakpoint(PhysPt adr, uint8_t intNr, uint16_t ahValue
 	std::list<CBreakpoint*>::iterator i;
 	for(i=BPoints.begin(); i != BPoints.end(); ++i) {
 		CBreakpoint* bp = (*i);
-		if ((bp->GetType()==BKPNT_INTERRUPT) && bp->IsActive() && (bp->GetIntNr()==intNr)) {
+		if ((bp->GetType()==BKPNT_INTERRUPT) && bp->IsActive() &&
+		    (!bp->softwareOnly || software) && (bp->GetIntNr()==intNr)) {
 			if (((bp->GetValue()==BPINT_ALL) || (bp->GetValue()==ahValue)) && ((bp->GetOther()==BPINT_ALL) || (bp->GetOther()==alValue))) {
-				// Ignore it once ?
-				// Found
+				if (!bp->MatchesPolicy()) continue;
+				lastTriggered = bp;
+				agent_breakpoint_hit_count = bp->GetMatchCount();
+				agent_breakpoint_interrupt = true;
+				agent_breakpoint_software = software;
+				agent_breakpoint_interrupt_number = intNr;
+				agent_breakpoint_interrupt_ah = static_cast<uint8_t>(ahValue);
+				agent_breakpoint_interrupt_al = static_cast<uint8_t>(alValue);
 				if (bp->GetOnce()) {
 					// delete it, if it should only be used once
 					(BPoints.erase)(i);
@@ -1098,6 +1113,7 @@ void CBreakpoint::DeleteAll()
 	(BPoints.clear)();
 	lastTriggered = nullptr;
 	agent_breakpoint_hit_count = 0;
+	agent_breakpoint_interrupt = false;
 	RefreshAgentMemoryWatch();
 #if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
 	agent_watch_instruction_active = false;
@@ -1250,12 +1266,12 @@ bool DEBUG_Breakpoint(void)
 	return true;
 }
 
-bool DEBUG_IntBreakpoint(uint8_t intNum)
+bool DEBUG_IntBreakpoint(uint8_t intNum, bool software)
 {
 	if (inhibit_int_breakpoint) return false; /* or else stepping over INT 21h when BPINT 21h does nothing */
 	/* First get the physical address and check for a set Breakpoint */
 	PhysPt where=(PhysPt)GetAddress(SegValue(cs),reg_eip);
-	if (!CBreakpoint::CheckIntBreakpoint(where,intNum,reg_ah,reg_al)) return false;
+	if (!CBreakpoint::CheckIntBreakpoint(where,intNum,reg_ah,reg_al,software)) return false;
 	// Found. Breakpoint is valid
 	CBreakpoint::DeactivateBreakpoints();	// Deactivate all breakpoints
 	return true;
@@ -1376,6 +1392,25 @@ bool DEBUG_AgentCreateExecutionBreakpoint(uint16_t seg, uint32_t off, bool once,
 	CBreakpoint* breakpoint = CBreakpoint::AddBreakpoint(seg,off,once);
 	*handle = reinterpret_cast<uintptr_t>(breakpoint);
 	return breakpoint != nullptr;
+}
+
+bool DEBUG_AgentCreateInterruptBreakpoint(uint8_t int_num,
+                                          uint16_t ah,
+                                          uint16_t al,
+                                          bool once,
+                                          uintptr_t* handle)
+{
+	if (handle == nullptr || ah > BPINT_ALL || al > BPINT_ALL)
+		return false;
+	CBreakpoint* breakpoint = CBreakpoint::AddIntBreakpoint(
+	        int_num, ah, al, once, true);
+	if (breakpoint == nullptr)
+		return false;
+	// Like exact access watchpoints, semantic interrupt breakpoints must be
+	// armed before RUN executes the first resumed instruction.
+	breakpoint->Activate(true);
+	*handle = reinterpret_cast<uintptr_t>(breakpoint);
+	return true;
 }
 
 bool DEBUG_AgentCreateMemoryBreakpoint(uint16_t seg,
@@ -1522,7 +1557,13 @@ bool DEBUG_AgentConsumeBreakpointHit(DEBUG_AgentBreakpointHit* hit)
 		return false;
 	hit->handle = reinterpret_cast<uintptr_t>(breakpoint);
 	hit->hit_count = agent_breakpoint_hit_count;
+	hit->interrupt = agent_breakpoint_interrupt;
+	hit->software = agent_breakpoint_software;
+	hit->interrupt_number = agent_breakpoint_interrupt_number;
+	hit->ah = agent_breakpoint_interrupt_ah;
+	hit->al = agent_breakpoint_interrupt_al;
 	agent_breakpoint_hit_count = 0;
+	agent_breakpoint_interrupt = false;
 	return true;
 }
 
@@ -1536,6 +1577,7 @@ void DEBUG_AgentClearLastBreakpoint(void)
 {
 	(void)CBreakpoint::ConsumeLastTriggered();
 	agent_breakpoint_hit_count = 0;
+	agent_breakpoint_interrupt = false;
 }
 
 #if C_HEAVY_DEBUG
@@ -6961,6 +7003,7 @@ bool DEBUG_HeavyIsBreakpoint(void) {
 		CBreakpoint::lastTriggered = breakpoint;
 		agent_breakpoint_hit_count = breakpoint != nullptr ?
 		        breakpoint->GetMatchCount() : 0;
+		agent_breakpoint_interrupt = false;
 		if (breakpoint != nullptr && breakpoint->GetOnce()) {
 			CBreakpoint::BPoints.remove(breakpoint);
 			delete breakpoint;

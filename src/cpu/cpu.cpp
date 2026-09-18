@@ -1206,12 +1206,12 @@ void CPU_Interrupt(Bitu num,Bitu type,uint32_t oldeip) {
 	FillFlags();
 #if C_DEBUG
 # if C_HEAVY_DEBUG
-    bool DEBUG_IntBreakpoint(uint8_t intNum);
+    bool DEBUG_IntBreakpoint(uint8_t intNum, bool software);
     Bitu DEBUG_EnableDebugger(void);
 
     if (type != CPU_INT_SOFTWARE) { /* CPU core already takes care of SW interrupts */
 #if !defined(HX_DOS)
-        if (DEBUG_IntBreakpoint((uint8_t)num))
+        if (DEBUG_IntBreakpoint((uint8_t)num, false))
             DEBUG_EnableDebugger();
 #endif
     }

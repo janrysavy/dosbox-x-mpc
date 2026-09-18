@@ -740,6 +740,63 @@ bool DebuggerAdapter::CreateBreakpoint(const BreakpointKind kind,
 #endif
 }
 
+bool DebuggerAdapter::CreateInterruptBreakpoint(
+        const InterruptBreakpointSelector& selector,
+        const bool once,
+        const BreakpointCondition& condition,
+        const BreakpointHitFilter& hit_filter,
+        NativeBreakpoint* breakpoint,
+        std::string* error) const
+{
+    if (!RequireAvailable(error) || !RequireEmulationThread(error) || breakpoint == NULL)
+        return false;
+
+#if C_DEBUG
+    const std::uint16_t wildcard = 0x100;
+    std::uintptr_t handle = 0;
+    if (!DEBUG_AgentCreateInterruptBreakpoint(
+                selector.number,
+                selector.has_ah ? selector.ah : wildcard,
+                selector.has_al ? selector.al : wildcard,
+                once,
+                &handle)) {
+        if (error != NULL)
+            *error = "Debugger rejected the software-interrupt breakpoint";
+        return false;
+    }
+
+    DEBUG_AgentBreakpointPolicy policy;
+    policy.register_name = condition.register_name.c_str();
+    policy.condition_enabled = condition.enabled;
+    policy.condition_equal = condition.equal;
+    policy.condition_value = condition.value;
+    policy.skip = hit_filter.skip;
+    policy.every = hit_filter.every;
+    if (!DEBUG_AgentConfigureBreakpoint(handle, &policy)) {
+        (void)DEBUG_AgentDeleteBreakpoint(handle);
+        if (error != NULL)
+            *error = "Debugger rejected the interrupt breakpoint condition or hit filter";
+        return false;
+    }
+
+    breakpoint->handle = handle;
+    breakpoint->kind = BreakpointKind::Interrupt;
+    breakpoint->interrupt = selector;
+    breakpoint->length = 0;
+    breakpoint->once = once;
+    breakpoint->condition = condition;
+    breakpoint->hit_filter = hit_filter;
+    return true;
+#else
+    (void)selector;
+    (void)once;
+    (void)condition;
+    (void)hit_filter;
+    (void)breakpoint;
+    return false;
+#endif
+}
+
 bool DebuggerAdapter::DeleteBreakpoint(const NativeBreakpoint& breakpoint, std::string* error) const
 {
     if (!RequireAvailable(error) || !RequireEmulationThread(error))
@@ -767,6 +824,11 @@ bool DebuggerAdapter::ConsumeLastBreakpointHit(BreakpointHit* hit) const
         return false;
     hit->handle = native.handle;
     hit->hit_count = native.hit_count;
+    hit->interrupt.valid = native.interrupt;
+    hit->interrupt.software = native.software;
+    hit->interrupt.number = native.interrupt_number;
+    hit->interrupt.ah = native.ah;
+    hit->interrupt.al = native.al;
     return true;
 #else
     (void)hit;

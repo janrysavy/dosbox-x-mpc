@@ -322,6 +322,60 @@ class AgentClientTests(unittest.TestCase):
         self.assertEqual("after_instruction", stopped.registers.phase)
         self.assertEqual(3, stopped.registers.state_revision)
 
+    def test_interrupt_breakpoint_request_and_stop_are_typed(self) -> None:
+        encoded_event = {
+            "type": "software_interrupt", "number": "0x21", "ah": "0x4C"
+        }
+
+        def handler(request: dict) -> dict:
+            if request["method"] == "breakpoints.create":
+                params = request["params"]
+                return {"result": {
+                    "session_id": "ses-1", "state_revision": 2,
+                    "breakpoint_id": "bp-int", "kind": "interrupt",
+                    "once": params["once"], "event": params["event"],
+                    "condition": params.get("condition"),
+                    "hit_filter": params["hit_filter"],
+                }}
+            if request["method"] == "execution.wait":
+                return {"result": {
+                    "session_id": "ses-1", "state_revision": 3, "state": "stopped",
+                    "stop_reason": {
+                        "kind": "breakpoint", "breakpoint_id": "bp-int", "hit_count": 1,
+                        "address": {"space": "segmented", "segment": "0x1000",
+                                    "offset": "0x00000108"},
+                        "event": {
+                            "type": "software_interrupt", "phase": "before_handler",
+                            "number": "0x21", "ah": "0x4C", "al": "0x07",
+                        },
+                    },
+                }}
+            self.fail(f"unexpected method {request['method']}")
+
+        transport = FakeTransport(handler)
+        client = AgentClient(make_config(), transport)
+        condition = BreakpointCondition("bx", "ne", 0x1234)
+        breakpoint = client.create_interrupt_breakpoint(
+            "ses-1", 0x21, ah=0x4C, once=True, condition=condition,
+            hit_filter=BreakpointHitFilter(skip=1, every=2),
+        )
+        self.assertEqual("interrupt", breakpoint.kind)
+        self.assertIsNone(breakpoint.address)
+        self.assertEqual(0x21, breakpoint.event.number)
+        self.assertEqual(0x4C, breakpoint.event.ah)
+        self.assertIsNone(breakpoint.event.al)
+        self.assertEqual(encoded_event, transport.requests[0]["params"]["event"])
+        self.assertNotIn("address", transport.requests[0]["params"])
+        self.assertNotIn("length", transport.requests[0]["params"])
+
+        reason = client.wait("ses-1", "op-1", 100).session.stop_reason
+        self.assertEqual("bp-int", reason.breakpoint_id)
+        self.assertEqual("before_handler", reason.event.phase)
+        self.assertEqual((0x21, 0x4C, 0x07),
+                         (reason.event.number, reason.event.ah, reason.event.al))
+        with self.assertRaisesRegex(ValueError, "unsigned 8-bit"):
+            client.create_interrupt_breakpoint("ses-1", 0x100)
+
     def test_execution_breakpoint_condition_is_typed_and_watch_condition_is_rejected(self) -> None:
         def handler(request: dict) -> dict:
             params = request["params"]

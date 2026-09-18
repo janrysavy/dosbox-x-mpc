@@ -93,10 +93,27 @@ enum class StepMode {
 
 enum class BreakpointKind {
     Execution,
+    Interrupt,
     MemoryChange,
     MemoryRead,
     MemoryWrite,
     MemoryAccess
+};
+
+struct InterruptBreakpointSelector {
+    std::uint8_t number = 0;
+    bool has_ah = false;
+    std::uint8_t ah = 0;
+    bool has_al = false;
+    std::uint8_t al = 0;
+};
+
+struct InterruptEvent {
+    bool valid = false;
+    bool software = false;
+    std::uint8_t number = 0;
+    std::uint8_t ah = 0;
+    std::uint8_t al = 0;
 };
 
 struct BreakpointCondition {
@@ -115,6 +132,7 @@ struct NativeBreakpoint {
     std::uintptr_t handle = 0;
     BreakpointKind kind = BreakpointKind::Execution;
     MemoryAddress address;
+    InterruptBreakpointSelector interrupt;
     std::uint32_t length = 1;
     bool once = false;
     BreakpointCondition condition;
@@ -124,6 +142,7 @@ struct NativeBreakpoint {
 struct BreakpointHit {
     std::uintptr_t handle = 0;
     std::uint64_t hit_count = 0;
+    InterruptEvent interrupt;
 };
 
 struct WatchpointHit {
@@ -189,6 +208,12 @@ public:
                           NativeBreakpoint* breakpoint,
                           MemoryAccessError* access_error,
                           std::string* error) const;
+    bool CreateInterruptBreakpoint(const InterruptBreakpointSelector& selector,
+                                   bool once,
+                                   const BreakpointCondition& condition,
+                                   const BreakpointHitFilter& hit_filter,
+                                   NativeBreakpoint* breakpoint,
+                                   std::string* error) const;
     bool DeleteBreakpoint(const NativeBreakpoint& breakpoint, std::string* error) const;
     bool ConsumeLastBreakpointHit(BreakpointHit* hit) const;
     bool ConsumeLastWatchpointHit(WatchpointHit* hit) const;

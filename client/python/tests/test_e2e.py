@@ -233,6 +233,42 @@ def main() -> int:
         stop = client.stop(session.id)
         client.wait(session.id, stop.id, 10000)
 
+        session = client.start("AGINT.COM")
+        session_id = session.id
+        interrupt_breakpoint = client.create_interrupt_breakpoint(
+            session.id, 0x21, ah=0x4C, once=True,
+        )
+        if client.list_breakpoints(session.id) != (interrupt_breakpoint,):
+            raise AssertionError("software-interrupt selector changed while listed")
+        operation = client.continue_(session.id)
+        interrupt_stop = client.wait(session.id, operation.id, 10000).session.stop_reason
+        if (interrupt_stop is None or
+                interrupt_stop.breakpoint_id != interrupt_breakpoint.id or
+                interrupt_stop.hit_count != 1 or interrupt_stop.event is None):
+            raise AssertionError(
+                f"software-interrupt breakpoint did not report typed evidence: {interrupt_stop}"
+            )
+        event = interrupt_stop.event
+        if (event.number, event.ah, event.al, event.phase) != (0x21, 0x4C, 0x07, "before_handler"):
+            raise AssertionError(f"software-interrupt event mismatch: {event}")
+        interrupt_registers = client.get_registers(session.id)
+        if int(interrupt_registers.general["eax"], 16) & 0xffff != 0x4C07:
+            raise AssertionError(
+                f"software-interrupt registers mismatch: {interrupt_registers.general['eax']}"
+            )
+        if client.list_breakpoints(session.id):
+            raise AssertionError("one-shot software-interrupt breakpoint remained after its hit")
+        operation = client.continue_(session.id)
+        exited = client.wait(session.id, operation.id, 10000)
+        reason = exited.session.stop_reason
+        if (exited.running or exited.session.state != "exited" or reason is None or
+                reason.kind != "program_exit" or reason.exit_code != 7):
+            raise AssertionError(f"INT 21h termination did not run after breakpoint: {reason}")
+        print(
+            "INTERRUPT evidence: software INT 21h AH=4Ch AL=07h stopped "
+            f"{event.phase}; AX={interrupt_registers.general['eax']}; DOS exit code={reason.exit_code}."
+        )
+
         session = client.start("AGENTFIX.COM")
         session_id = session.id
         status = client.status(session.id)

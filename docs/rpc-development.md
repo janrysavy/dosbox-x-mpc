@@ -407,8 +407,8 @@ partial.
 
 | 方法 | 参数 | 结果 | 规则 |
 | --- | --- | --- | --- |
-| `breakpoints.create` | `session_id`、`kind`、`address`、可选 `length`、`once`、`condition`、`hit_filter` | 稳定 `breakpoint_id`、规范化地址、condition 和 filter | Exact kinds are `memory_read`, `memory_write`, and `memory_access`; register conditions are execution-only. |
-| `breakpoints.list` | `session_id` | 所有 breakpoint 的 id、kind、enabled、address、length、once、condition、hit_filter | 不能解析 `BPLIST` 文本作为正式实现。 |
+| `breakpoints.create` | `session_id`, `kind`, address or event selector, optional `length`, `once`, `condition`, `hit_filter` | Stable `breakpoint_id`, normalized selector, condition and filter | `kind=interrupt` uses a software-interrupt event instead of address/length; exact memory kinds are `memory_read`, `memory_write`, and `memory_access`. |
+| `breakpoints.list` | `session_id` | All breakpoint ids, kinds, selectors, enabled state, once flag, condition and filter | Interrupt entries return `event`; address breakpoints return `address` and `length`. |
 | `breakpoints.delete` | `session_id`、`breakpoint_id` | 删除确认和 revision | 删除不存在 id 返回 `BREAKPOINT_NOT_FOUND`。 |
 
 `kind=memory_change` 仅在 `agent.capabilities.breakpoints.memory_change=true` 时可创建。实现必须明确 address space 和 CPU mode 的支持范围；不支持时返回 `CAPABILITY_UNAVAILABLE`，不得创建普通执行断点替代。
@@ -428,6 +428,15 @@ counts only condition matches, ignores `skip`, then selects the first eligible
 match and every `every` matches thereafter. A selected stop includes
 `stop_reason.hit_count`. Filters are native debugger state: rejected encounters
 do not stop the emulator or complete the pending continue operation.
+
+A semantic software-interrupt breakpoint uses
+`kind=interrupt,event={type:"software_interrupt",number:"0xNN"}` with optional
+fixed-width `ah` and `al` filters. It matches only software `INT` instructions.
+The selected stop reports the actual number/AH/AL and
+`phase=before_handler`; continuing performs the original interrupt normally.
+Register conditions and hit filters use the same native policy as execution
+breakpoints. `agent.capabilities.breakpoints` reports `software_interrupt=true`
+and `interrupt_phase=before_handler`.
 
 RPC id 不得复用 `CBreakpoint` 当前显示列表 index。adapter 必须生成 session 内稳定的 `bp-*` id，并维护其与底层 breakpoint object 的映射，避免 `BPDEL` 后索引变化导致误删。
 
@@ -542,6 +551,7 @@ start:
 - [x] `RPC-C11` - exact memory access watchpoints; `AGENTFIX.COM` writes two bytes at `DS:0201`, then reads `DS:0200`. A write watch reports instruction `CS:010C`, the bytes before the instruction and `43 42` after it, and post-IP `0111`; a read watch reports instruction `CS:0111`, value `41` before/after, and post-IP `0113`. Both are one-shot and absent from the next list. Evidence: 2026-09-18, `verify_client_clean_runs.ps1` completed against three fresh runtimes and the committed Turbo Pascal probe transcript separately reports its B800 writer at `08AB:0028`, old `3E`, new `20`, post-IP `002B`.
 - [x] `RPC-C12` - structured execution conditions and hit filters; `AGCOND.COM` reaches `CS:0106` with AX values 1 through 5. Condition `AX != 1`, `skip=1`, `every=2` stops only with AX 3 and 5 and reports condition-hit counts 2 and 4. Evidence: 2026-09-18, the named-pipe E2E produced those exact two stops without completing continue on rejected encounters.
 - [x] `RPC-C13` - exact DOS loader metadata and live MCB ownership; the COM fixture reports its 25 bytes, PSP-relative entry, separate load segment, and target process block, while the Turbo Pascal MZ probe's partial final page reports 3,408 bytes rather than the 3,488-byte rounded-page upper bound. Evidence: 2026-09-18, the named-pipe E2E passed and `re/harness/traces/agent-dos-map/session.txt` matched the mounted MZ header, relocated entry and stack with zero missing measurements.
+- [x] `RPC-C14` - semantic software-interrupt breakpoints; `AGINT.COM` first calls DOS version service, then asks DOS to terminate with `INT 21h`, AX=`4C07h`. A one-shot `INT 21h/AH=4Ch` selector ignores the earlier call, stops before the termination handler with actual AL=`07h`, disappears from the list, and continuation produces `program_exit` code 7. Evidence: 2026-09-18, three independent named-pipe E2E runs produced that exact event and exit; 73 GoogleTests passed.
 
 ### 阶段 D：输出、trace 和兼容命令
 
@@ -553,8 +563,8 @@ start:
 
 ### 阶段 E：Client 和端到端
 
-- [x] `RPC-E01` - Python client unit tests；执行 `python -m unittest discover -s client\python\tests -t client\python -v`；退出码为 0，覆盖 model、base64、error mapping、request id retry；证据：2026-09-18，10 个 unittest 全部通过，包括 typed exact-watchpoint evidence、structured breakpoint policies、binary length validation and malformed base64 rejection。
-- [x] `RPC-E02` - End-to-end fixture; run `python client\python\tests\test_e2e.py --config tests\agent\agent-test.env`. It covers start, breakpoint, continue, wait, register and memory access, step, controller stop, natural DOS exit, child-PSP filtering, and continue/stop race ordering. A passing run exits zero.
+- [x] `RPC-E01` - Python client unit tests; run `python -m unittest discover -s client\python\tests -t client\python -v`. Evidence: 2026-09-18, all 11 tests passed, including typed interrupt selectors/events, exact-watchpoint evidence, structured breakpoint policies, binary-length validation and malformed base64 rejection.
+- [x] `RPC-E02` - End-to-end fixture; run `python client\python\tests\test_e2e.py --config tests\agent\agent-test.env`. It covers start, execution and semantic interrupt breakpoints, continue, wait, registers, memory access, step, controller stop, natural DOS exit, child-PSP filtering, and continue/stop race ordering. A passing run exits zero.
 - [x] `RPC-E03` - DOSBox-X 既有单元测试未回归；执行 `& '.\bin\x64\Agent Debug SDL2\dosbox-x.exe' -tests`；退出码为 0 且输出 `Unit test completed: success`；证据：2026-09-02，`-tests` 退出码为 0；当前 Windows GUI build 不向调用 PowerShell 转发测试日志，`shell.cpp` 的 `RUN_ALL_TESTS()` 返回值为进程退出状态。
 - [x] `RPC-E04` - 干净运行可重复；执行 `if (Test-Path tests\agent\runtime) { Remove-Item -Recurse -Force tests\agent\runtime }; New-Item -ItemType Directory -Path tests\agent\runtime` 后，连续运行 E02 三次；三次均通过，trace 和输出无跨运行数据；证据：2026-09-18，`tests\agent\verify_client_clean_runs.ps1` created three independent runtime/config directories, deliberately cleared DOS `PATH`, and completed all three runs. The pathless case proves target startup invokes the internal `Z:\SYSTEM\MOUNT.COM` directly instead of racing AUTOEXEC's PATH initialization; every run also starts output sequence at 1 and trace sequence at 1, 2.
 

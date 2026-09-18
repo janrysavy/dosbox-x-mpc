@@ -1048,7 +1048,7 @@
 		FillFlags();
 		if (DEBUG_Breakpoint())
 			return (Bits)debugCallback;
-		if (DEBUG_IntBreakpoint(3))
+		if (DEBUG_IntBreakpoint(3, true))
 			return (Bits)debugCallback;
 #endif			
 		CPU_SW_Interrupt_NoIOPLCheck(3,GETIP);
@@ -1061,7 +1061,7 @@
 			uint8_t num=Fetchb();
 #if C_DEBUG
 			FillFlags();
-			if (DEBUG_IntBreakpoint(num)) {
+			if (DEBUG_IntBreakpoint(num, true)) {
 				return (Bits)debugCallback;
 			}
 #endif

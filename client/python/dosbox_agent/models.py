@@ -136,6 +136,58 @@ class WatchpointAccess:
 
 
 @dataclass(frozen=True)
+class InterruptBreakpoint:
+    number: int
+    ah: int | None = None
+    al: int | None = None
+
+    def to_rpc(self) -> dict[str, str]:
+        result = {
+            "type": "software_interrupt",
+            "number": format_hex(self.number, 2),
+        }
+        if self.ah is not None:
+            result["ah"] = format_hex(self.ah, 2)
+        if self.al is not None:
+            result["al"] = format_hex(self.al, 2)
+        return result
+
+    @classmethod
+    def from_rpc(cls, value: Mapping[str, Any]) -> "InterruptBreakpoint":
+        if _string(value.get("type"), "breakpoint.event.type") != "software_interrupt":
+            raise ValueError("breakpoint.event.type must be software_interrupt")
+        return cls(
+            number=int(_hex_argument(value.get("number"), 2), 16),
+            ah=int(_hex_argument(value.get("ah"), 2), 16)
+            if value.get("ah") is not None else None,
+            al=int(_hex_argument(value.get("al"), 2), 16)
+            if value.get("al") is not None else None,
+        )
+
+
+@dataclass(frozen=True)
+class InterruptEvent:
+    number: int
+    ah: int
+    al: int
+    phase: str
+
+    @classmethod
+    def from_rpc(cls, value: Mapping[str, Any]) -> "InterruptEvent":
+        if _string(value.get("type"), "stop_reason.event.type") != "software_interrupt":
+            raise ValueError("stop_reason.event.type must be software_interrupt")
+        phase = _string(value.get("phase"), "stop_reason.event.phase")
+        if phase != "before_handler":
+            raise ValueError("stop_reason.event.phase must be before_handler")
+        return cls(
+            number=int(_hex_argument(value.get("number"), 2), 16),
+            ah=int(_hex_argument(value.get("ah"), 2), 16),
+            al=int(_hex_argument(value.get("al"), 2), 16),
+            phase=phase,
+        )
+
+
+@dataclass(frozen=True)
 class StopReason:
     kind: str
     address: MemoryAddress | None = None
@@ -146,6 +198,7 @@ class StopReason:
     access: WatchpointAccess | None = None
     registers: RegisterSnapshot | None = None
     hit_count: int | None = None
+    event: InterruptEvent | None = None
 
     @classmethod
     def from_rpc(cls, value: Mapping[str, Any]) -> "StopReason":
@@ -156,6 +209,7 @@ class StopReason:
         access = value.get("access")
         registers = value.get("registers")
         hit_count = value.get("hit_count")
+        event = value.get("event")
         return cls(
             kind=_string(value.get("kind"), "stop_reason.kind"),
             address=MemoryAddress.from_rpc(_mapping(address, "stop_reason.address")) if address is not None else None,
@@ -171,6 +225,9 @@ class StopReason:
             ) if registers is not None else None,
             hit_count=_integer(hit_count, "stop_reason.hit_count")
             if hit_count is not None else None,
+            event=InterruptEvent.from_rpc(
+                _mapping(event, "stop_reason.event")
+            ) if event is not None else None,
         )
 
 
@@ -333,12 +390,13 @@ class BreakpointHitFilter:
 class Breakpoint:
     id: str
     kind: str
-    address: MemoryAddress
+    address: MemoryAddress | None
     once: bool
     length: int = 1
     enabled: bool = True
     condition: BreakpointCondition | None = None
     hit_filter: BreakpointHitFilter = BreakpointHitFilter()
+    event: InterruptBreakpoint | None = None
 
 
 @dataclass(frozen=True)
