@@ -19,6 +19,8 @@ extern bool ParseCommand(char* str);
 extern char appname[];
 extern char appargs[];
 extern bool dos_program_running;
+extern void runMount(const char* arguments);
+extern std::string full_arguments;
 #endif
 
 #include <algorithm>
@@ -348,10 +350,16 @@ bool DebuggerAdapter::StartTargetAtEntry(const std::string& command,
     // for every session is not idempotent: the DOS command reports an existing
     // drive through its normal output path and can leave a stale DOS error code.
     if (Drives[2] == NULL) {
-        // MOUNT.COM is an internal program at this fixed Z: path.  Using the
-        // short name races the shell's AUTOEXEC initialization of PATH.
-        std::string mount_command = "Z:\\SYSTEM\\MOUNT.COM C \"" + workdir + "\"";
-        first_shell->DoCommand(&mount_command[0]);
+        // DoCommand starts the DOS-side MOUNT.COM and can return before that
+        // program has populated Drives[2].  runMount executes the same internal
+        // program synchronously on this emulation-thread callback, so the check
+        // below is a postcondition rather than a race with DOS execution.
+        const std::string mount_arguments = "C \"" + workdir + "\" -Q";
+        // MOUNT switches to the shell's long-command buffer above 100 bytes.
+        // This direct invocation has no preceding shell parse, so make that
+        // buffer describe the exact command that runMount is about to execute.
+        full_arguments = mount_arguments;
+        runMount(mount_arguments.c_str());
         if (Drives[2] == NULL) {
             if (error != NULL)
                 *error = "Configured C drive mount did not become active";

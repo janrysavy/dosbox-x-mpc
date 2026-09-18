@@ -494,6 +494,7 @@ static bool IsKnownMethod(const std::string& method)
            method == "session.status" ||
            method == "session.stop" ||
            method == "execution.continue" ||
+           method == "execution.run_until" ||
            method == "execution.pause" ||
            method == "execution.step" ||
            method == "execution.wait" ||
@@ -599,6 +600,8 @@ public:
         std::string id;
         NativeBreakpoint native;
         bool enabled = true;
+        bool temporary = false;
+        std::string operation_id;
     };
 
     struct Session {
@@ -614,6 +617,7 @@ public:
         std::uint8_t exit_code = 0;
         bool exit_was_tsr = false;
         std::string last_stop_kind;
+        std::string last_stop_message;
         std::uint16_t last_stop_segment = 0;
         std::uint32_t last_stop_instruction_pointer = 0;
         std::string last_stop_breakpoint_id;
@@ -790,7 +794,15 @@ public:
     std::uint16_t CurrentPsp() const override { return 0x1000; }
     std::uint64_t EntryBreakpointSequence() const override { return 0; }
 
-    bool Continue(std::string*) const override { return true; }
+    bool Continue(std::string*) const override
+    {
+        const std::uintptr_t handle = armed_fake_breakpoint.exchange(0);
+        if (handle != 0) {
+            hit_fake_breakpoint.store(handle);
+            AGENT_NotifyDebuggerStopped(0x1000, 0x0106);
+        }
+        return true;
+    }
 
     bool Pause(std::string*) const override
     {
@@ -856,7 +868,28 @@ public:
     AGENT_RUNTIME_UNAVAILABLE(Step, bool Step(StepMode, bool*, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(ReadMemory, bool ReadMemory(const MemoryAddress&, std::size_t, std::vector<std::uint8_t>*, MemoryAccessError*, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(WriteMemory, bool WriteMemory(const MemoryAddress&, const std::vector<std::uint8_t>&, std::vector<std::uint8_t>*, MemoryAccessError*, std::string* error) const)
-    AGENT_RUNTIME_UNAVAILABLE(CreateBreakpoint, bool CreateBreakpoint(BreakpointKind, const MemoryAddress&, std::uint32_t, bool, const BreakpointCondition&, const BreakpointHitFilter&, NativeBreakpoint*, MemoryAccessError*, std::string* error) const)
+    bool CreateBreakpoint(const BreakpointKind kind,
+                          const MemoryAddress& address,
+                          const std::uint32_t length,
+                          const bool once,
+                          const BreakpointCondition& condition,
+                          const BreakpointHitFilter& hit_filter,
+                          NativeBreakpoint* breakpoint,
+                          MemoryAccessError*,
+                          std::string*) const override
+    {
+        if (breakpoint == NULL)
+            return false;
+        breakpoint->handle = next_fake_breakpoint.fetch_add(1);
+        breakpoint->kind = kind;
+        breakpoint->address = address;
+        breakpoint->length = length;
+        breakpoint->once = once;
+        breakpoint->condition = condition;
+        breakpoint->hit_filter = hit_filter;
+        armed_fake_breakpoint.store(breakpoint->handle);
+        return true;
+    }
     bool CreateInterruptBreakpoint(const InterruptBreakpointSelector& selector,
                                    const bool once,
                                    const BreakpointCondition& condition,
@@ -873,10 +906,24 @@ public:
         breakpoint->once = once;
         breakpoint->condition = condition;
         breakpoint->hit_filter = hit_filter;
+        armed_fake_breakpoint.store(breakpoint->handle);
         return true;
     }
-    AGENT_RUNTIME_UNAVAILABLE(DeleteBreakpoint, bool DeleteBreakpoint(const NativeBreakpoint&, std::string* error) const)
-    bool ConsumeLastBreakpointHit(BreakpointHit*) const override { return false; }
+    bool DeleteBreakpoint(const NativeBreakpoint& breakpoint, std::string*) const override
+    {
+        std::uintptr_t expected = breakpoint.handle;
+        (void)armed_fake_breakpoint.compare_exchange_strong(expected, 0);
+        return true;
+    }
+    bool ConsumeLastBreakpointHit(BreakpointHit* hit) const override
+    {
+        const std::uintptr_t handle = hit_fake_breakpoint.exchange(0);
+        if (handle == 0 || hit == NULL)
+            return false;
+        hit->handle = handle;
+        hit->hit_count = 1;
+        return true;
+    }
     bool ConsumeLastWatchpointHit(WatchpointHit*) const override { return false; }
     bool GetDosMemoryMap(DosMemoryMap* memory_map, std::string*) const override
     {
@@ -905,6 +952,10 @@ public:
 #undef AGENT_RUNTIME_UNAVAILABLE
 
 private:
+    mutable std::atomic<std::uintptr_t> next_fake_breakpoint{0x2000};
+    mutable std::atomic<std::uintptr_t> armed_fake_breakpoint{0};
+    mutable std::atomic<std::uintptr_t> hit_fake_breakpoint{0};
+
     static void SetUnavailable(std::string* error)
     {
         if (error != NULL)
@@ -1303,6 +1354,8 @@ static JsonValue StopReason(const AgentServer::Impl::Session& session)
 {
     JsonValue stop = Object();
     Add(&stop, "kind", String(session.last_stop_kind));
+    if (!session.last_stop_message.empty())
+        Add(&stop, "message", String(session.last_stop_message));
     if (!session.last_stop_breakpoint_id.empty())
         Add(&stop, "breakpoint_id", String(session.last_stop_breakpoint_id));
     if (session.has_last_stop_breakpoint_hit_count)
@@ -1331,7 +1384,7 @@ static JsonValue StopReason(const AgentServer::Impl::Session& session)
     if (session.has_last_stop_breakpoint_address) {
         Add(&stop, "address", EncodeMemoryAddress(session.last_stop_breakpoint_address));
     } else if (session.last_stop_kind == "startup" || session.last_stop_kind == "step" ||
-               session.last_stop_kind == "breakpoint") {
+               session.last_stop_kind == "breakpoint" || session.last_stop_kind == "run_until") {
         JsonValue address = Object();
         Add(&address, "space", String("segmented"));
         std::ostringstream segment;
@@ -1714,6 +1767,20 @@ static std::string Capabilities(const AgentConfig& config)
     Add(&trace, "effects_require_normal_core", JsonValue::Bool(true));
 #endif
     Add(&result, "trace", trace);
+    JsonValue execution = Object();
+    Add(&execution, "run_until", JsonValue::Bool(true));
+    Add(&execution, "run_until_atomic", JsonValue::Bool(true));
+    JsonValue predicate_kinds = JsonValue::Array();
+    predicate_kinds.array.push_back(String("execution"));
+    predicate_kinds.array.push_back(String("interrupt"));
+#ifdef C_HEAVY_DEBUG
+    predicate_kinds.array.push_back(String("memory_change"));
+    predicate_kinds.array.push_back(String("memory_read"));
+    predicate_kinds.array.push_back(String("memory_write"));
+    predicate_kinds.array.push_back(String("memory_access"));
+#endif
+    Add(&execution, "run_until_predicate_kinds", predicate_kinds);
+    Add(&result, "execution", execution);
     JsonValue video = Object();
     Add(&video, "snapshot", JsonValue::Bool(true));
     Add(&video, "atomic_components", JsonValue::Bool(true));
@@ -2210,6 +2277,203 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
         if (!session->last_stop_kind.empty())
             Add(&result, "last_stop", StopReason(*session));
         response = AGENT_MakeJsonRpcResult(parsed.id, result);
+    } else if (parsed.method == "execution.run_until") {
+        const JsonValue* predicate = parsed.params.Find("predicate");
+        std::string kind_name;
+        std::string validation_error;
+        MemoryAddress address;
+        InterruptBreakpointSelector interrupt;
+        std::uint32_t length = 1;
+        BreakpointCondition condition;
+        BreakpointHitFilter hit_filter;
+        bool valid = predicate != NULL && predicate->type == JsonType::Object &&
+                GetString(*predicate, "kind", &kind_name) &&
+                (kind_name == "execution" || kind_name == "interrupt" ||
+                 kind_name == "memory_change" || kind_name == "memory_read" ||
+                 kind_name == "memory_write" || kind_name == "memory_access");
+        const bool interrupt_kind = valid && kind_name == "interrupt";
+        const JsonValue* length_value = valid ? predicate->Find("length") : NULL;
+        const JsonValue* address_value = valid ? predicate->Find("address") : NULL;
+        const JsonValue* event_value = valid ? predicate->Find("event") : NULL;
+        if (!valid)
+            validation_error = "execution.run_until requires one supported predicate object";
+        else if (predicate->Find("once") != NULL) {
+            validation_error = "run-until predicates are implicitly one-shot and do not accept once";
+            valid = false;
+        } else if (!ParseBreakpointPolicy(*predicate, &condition, &hit_filter,
+                                          &validation_error)) {
+            valid = false;
+        } else if (interrupt_kind) {
+            if (address_value != NULL || length_value != NULL) {
+                validation_error = "interrupt predicates use event instead of address/length";
+                valid = false;
+            } else {
+                valid = ParseInterruptSelector(*predicate, &interrupt, &validation_error);
+            }
+        } else if (event_value != NULL) {
+            validation_error = "only interrupt predicates accept event";
+            valid = false;
+        } else {
+            valid = ParseMemoryAddress(*predicate, "execution.run_until predicate",
+                                       &address, &validation_error);
+            if (valid && length_value != NULL &&
+                (!GetUnsignedInteger(*length_value, &length) || length == 0)) {
+                validation_error = "predicate length must be a positive integer";
+                valid = false;
+            }
+        }
+        if (!valid) {
+            response = InvalidParams(parsed.id, validation_error.empty() ?
+                                     "execution.run_until predicate is invalid" : validation_error);
+        } else if (!interrupt_kind && length > impl->config.max_memory_read_bytes) {
+            response = Error(parsed.id, kErrorRequestTooLarge,
+                             "run-until predicate length exceeds max_memory_read_bytes",
+                             "REQUEST_TOO_LARGE");
+        } else if ((kind_name == "execution" || kind_name == "memory_change") && length != 1) {
+            response = InvalidParams(parsed.id,
+                                     "execution and memory_change predicates require length 1");
+        } else if (condition.enabled && kind_name != "execution" && kind_name != "interrupt") {
+            response = InvalidParams(parsed.id,
+                                     "register conditions are supported only on execution and interrupt predicates");
+        } else if (session->state == Impl::SessionState::Running) {
+            response = SessionError(parsed.id, kErrorTargetRunning,
+                                    "Target is already running", "TARGET_RUNNING", session);
+        } else if (session->state == Impl::SessionState::Exited) {
+            response = SessionError(parsed.id, kErrorCapabilityUnavailable,
+                                    "Target has exited", "TARGET_EXITED", session);
+        } else if (session->state != Impl::SessionState::Stopped) {
+            response = SessionError(parsed.id, kErrorCapabilityUnavailable,
+                                    "Target must be stopped before running to a predicate",
+                                    "TARGET_NOT_STOPPED", session);
+        } else {
+            BreakpointKind kind = BreakpointKind::Execution;
+            if (kind_name == "interrupt") kind = BreakpointKind::Interrupt;
+            else if (kind_name == "memory_change") kind = BreakpointKind::MemoryChange;
+            else if (kind_name == "memory_read") kind = BreakpointKind::MemoryRead;
+            else if (kind_name == "memory_write") kind = BreakpointKind::MemoryWrite;
+            else if (kind_name == "memory_access") kind = BreakpointKind::MemoryAccess;
+#ifndef C_HEAVY_DEBUG
+            if (kind != BreakpointKind::Execution && kind != BreakpointKind::Interrupt) {
+                response = Error(parsed.id, kErrorCapabilityUnavailable,
+                                 "Memory run-until predicates require C_HEAVY_DEBUG",
+                                 "CAPABILITY_UNAVAILABLE");
+            } else
+#endif
+            {
+                const std::string operation_id = "op-" +
+                        std::to_string(session->next_operation++);
+                const std::string predicate_id = "until-" +
+                        std::to_string(session->next_breakpoint++);
+                Impl::Operation operation;
+                operation.id = operation_id;
+                session->operations[operation_id] = operation;
+                session->state = Impl::SessionState::Running;
+                session->last_stop_message.clear();
+                const std::string session_id = session->id;
+                if (SubmitEmulationCommandLocked(impl,
+                        [impl, session_id, operation_id, predicate_id, kind, address,
+                         interrupt, length, condition, hit_filter](const std::uint64_t) {
+                    AgentRuntime& adapter = *impl->runtime;
+                    std::string adapter_error;
+                    MemoryAccessError access_error;
+                    NativeBreakpoint native;
+                    const bool created = kind == BreakpointKind::Interrupt ?
+                            adapter.CreateInterruptBreakpoint(interrupt, true, condition,
+                                                              hit_filter, &native,
+                                                              &adapter_error) :
+                            adapter.CreateBreakpoint(kind, address, length, true,
+                                                     condition, hit_filter, &native,
+                                                     &access_error, &adapter_error);
+                    if (!created) {
+                        if (!access_error.reason.empty())
+                            adapter_error = "Unable to resolve run-until predicate address: " +
+                                    access_error.reason;
+                        if (adapter_error.empty())
+                            adapter_error = "Debugger rejected the run-until predicate";
+                        std::lock_guard<std::mutex> command_lock(impl->mutex);
+                        if (!impl->session || impl->session->id != session_id)
+                            return;
+                        Impl::Session& active = *impl->session;
+                        std::map<std::string, Impl::Operation>::iterator pending =
+                                active.operations.find(operation_id);
+                        if (pending == active.operations.end() || pending->second.complete)
+                            return;
+                        active.state = Impl::SessionState::Stopped;
+                        active.last_stop_kind = "fault";
+                        active.last_stop_message = adapter_error;
+                        active.failure_message = adapter_error;
+                        pending->second.terminal_state = Impl::SessionState::Stopped;
+                        pending->second.stop_kind = "fault";
+                        pending->second.complete = true;
+                        ++active.state_revision;
+                        impl->state_changed.notify_all();
+                        return;
+                    }
+
+                    bool installed = false;
+                    {
+                        std::lock_guard<std::mutex> command_lock(impl->mutex);
+                        if (impl->session && impl->session->id == session_id &&
+                            impl->session->state == Impl::SessionState::Running) {
+                            std::map<std::string, Impl::Operation>::const_iterator pending =
+                                    impl->session->operations.find(operation_id);
+                            if (pending != impl->session->operations.end() &&
+                                !pending->second.complete) {
+                                Impl::Breakpoint temporary;
+                                temporary.id = predicate_id;
+                                temporary.native = native;
+                                temporary.temporary = true;
+                                temporary.operation_id = operation_id;
+                                impl->session->breakpoints[predicate_id] = temporary;
+                                installed = true;
+                            }
+                        }
+                    }
+                    if (!installed) {
+                        std::string cleanup_error;
+                        (void)adapter.DeleteBreakpoint(native, &cleanup_error);
+                        return;
+                    }
+                    if (adapter.Continue(&adapter_error))
+                        return;
+
+                    std::string cleanup_error;
+                    (void)adapter.DeleteBreakpoint(native, &cleanup_error);
+                    if (adapter_error.empty())
+                        adapter_error = "Debugger rejected atomic run-until resume";
+                    std::lock_guard<std::mutex> command_lock(impl->mutex);
+                    if (!impl->session || impl->session->id != session_id)
+                        return;
+                    Impl::Session& active = *impl->session;
+                    active.breakpoints.erase(predicate_id);
+                    std::map<std::string, Impl::Operation>::iterator pending =
+                            active.operations.find(operation_id);
+                    if (pending == active.operations.end() || pending->second.complete)
+                        return;
+                    active.state = Impl::SessionState::Stopped;
+                    active.last_stop_kind = "fault";
+                    active.last_stop_message = adapter_error;
+                    active.failure_message = adapter_error;
+                    pending->second.terminal_state = Impl::SessionState::Stopped;
+                    pending->second.stop_kind = "fault";
+                    pending->second.complete = true;
+                    ++active.state_revision;
+                    impl->state_changed.notify_all();
+                }) == 0) {
+                    session->operations.erase(operation_id);
+                    session->state = Impl::SessionState::Stopped;
+                    response = SessionError(parsed.id, kErrorCapabilityUnavailable,
+                                            "Emulation-thread bridge is unavailable",
+                                            "COMMAND_REJECTED", session);
+                } else {
+                    JsonValue result = SessionResult(*session);
+                    Add(&result, "operation_id", String(operation_id));
+                    Add(&result, "predicate_id", String(predicate_id));
+                    Add(&result, "state", String("running"));
+                    response = AGENT_MakeJsonRpcResult(parsed.id, result);
+                }
+            }
+        }
     } else if (parsed.method == "execution.continue") {
         if (session->state == Impl::SessionState::Running) {
             response = SessionError(parsed.id, kErrorTargetRunning,
@@ -2226,6 +2490,7 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
             operation.id = operation_id;
             session->operations[operation_id] = operation;
             session->state = Impl::SessionState::Running;
+            session->last_stop_message.clear();
             const std::string session_id = session->id;
             if (SubmitEmulationCommandLocked(impl, [impl, session_id, operation_id](const std::uint64_t) {
                     AgentRuntime& adapter = *impl->runtime;
@@ -2706,6 +2971,8 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
             JsonValue entries = JsonValue::Array();
             for (std::map<std::string, Impl::Breakpoint>::const_iterator item = session->breakpoints.begin();
                  item != session->breakpoints.end(); ++item) {
+                if (item->second.temporary)
+                    continue;
                 JsonValue entry = Object();
                 Add(&entry, "breakpoint_id", String(item->second.id));
                 Add(&entry, "kind", String(BreakpointKindName(item->second.native.kind)));
@@ -3819,6 +4086,7 @@ void AgentServer::CompleteTargetTerminationOnEmulationThread(const std::shared_p
     active.state = Impl::SessionState::Exited;
     active.trace.Stop();
     active.last_stop_kind = "session_stop";
+    active.last_stop_message.clear();
     active.last_stop_breakpoint_id.clear();
     active.has_last_stop_breakpoint_address = false;
     active.has_last_stop_breakpoint_hit_count = false;
@@ -3894,6 +4162,7 @@ void AgentServer::OnDebuggerStopped(const std::shared_ptr<Impl>& impl,
             (native_breakpoint != 0 ? "breakpoint" :
              (!impl->session->pending_stop_kind.empty() ? impl->session->pending_stop_kind :
               (trace_completed ? "pause" : "breakpoint")));
+    impl->session->last_stop_message.clear();
     impl->session->last_stop_segment = segment;
     impl->session->last_stop_instruction_pointer = instruction_pointer;
     impl->session->last_stop_breakpoint_id.clear();
@@ -3914,6 +4183,8 @@ void AgentServer::OnDebuggerStopped(const std::shared_ptr<Impl>& impl,
             }
             impl->session->last_stop_breakpoint_hit_count = breakpoint_hit.hit_count;
             impl->session->has_last_stop_breakpoint_hit_count = true;
+            if (item->second.temporary)
+                impl->session->last_stop_kind = "run_until";
             if (breakpoint_hit.interrupt.valid && breakpoint_hit.interrupt.software) {
                 impl->session->last_interrupt_event = breakpoint_hit.interrupt;
                 impl->session->has_last_interrupt_event = true;
@@ -3930,6 +4201,19 @@ void AgentServer::OnDebuggerStopped(const std::shared_ptr<Impl>& impl,
                 impl->session->breakpoints.erase(item);
             break;
         }
+    }
+    for (std::map<std::string, Impl::Breakpoint>::iterator item =
+                 impl->session->breakpoints.begin();
+         item != impl->session->breakpoints.end();) {
+        if (!item->second.temporary) {
+            ++item;
+            continue;
+        }
+        if (item->second.native.handle != native_breakpoint) {
+            std::string cleanup_error;
+            (void)adapter.DeleteBreakpoint(item->second.native, &cleanup_error);
+        }
+        item = impl->session->breakpoints.erase(item);
     }
     if (startup)
         impl->session->state_revision = 1;
@@ -3980,6 +4264,7 @@ void AgentServer::OnProgramExited(const std::shared_ptr<Impl>& impl,
     active.exit_code = exit_code;
     active.exit_was_tsr = tsr;
     active.last_stop_kind = "program_exit";
+    active.last_stop_message.clear();
     active.last_stop_breakpoint_id.clear();
     active.has_last_stop_breakpoint_address = false;
     active.has_last_stop_breakpoint_hit_count = false;

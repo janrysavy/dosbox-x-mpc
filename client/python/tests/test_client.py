@@ -18,10 +18,12 @@ from dosbox_agent import (
     BreakpointCondition,
     BreakpointHitFilter,
     BreakpointNotFoundError,
+    InterruptBreakpoint,
     InvalidBinaryLengthError,
     MemoryAddress,
     MemoryPreconditionFailedError,
     RequestTooLargeError,
+    RunUntilPredicate,
     SessionNotFoundError,
     TargetExitedError,
     TargetNotStoppedError,
@@ -154,6 +156,9 @@ class AgentClientTests(unittest.TestCase):
                 return {"result": {"session_id": "ses-1", "state_revision": 1, "state": "stopped", "last_stop": {"kind": "startup", "address": address}}}
             if method in ("execution.continue", "execution.pause", "session.stop"):
                 return {"result": {"session_id": "ses-1", "state_revision": 2, "operation_id": "op-1"}}
+            if method == "execution.run_until":
+                return {"result": {"session_id": "ses-1", "state_revision": 2,
+                                   "operation_id": "op-until", "predicate_id": "until-1"}}
             if method == "execution.wait":
                 return {"result": {"session_id": "ses-1", "state_revision": 2, "state": "stopped", "stop_reason": {"kind": "breakpoint", "address": address}}}
             if method == "execution.step":
@@ -249,6 +254,13 @@ class AgentClientTests(unittest.TestCase):
         self.assertEqual("0x0812", session.stop_reason.address.segment)
         self.assertEqual("0x00000106", client.status(session.id).stop_reason.address.offset)
         self.assertEqual("op-1", client.continue_(session.id).id)
+        until = client.run_until(
+            session.id,
+            RunUntilPredicate("execution", MemoryAddress.segmented(0x812, 0x106),
+                              condition=BreakpointCondition("ax", "ne", 0)),
+        )
+        self.assertEqual(("op-until", "until-1"), (until.id, until.predicate_id))
+        self.assertEqual("execution", transport.requests[-1]["params"]["predicate"]["kind"])
         self.assertFalse(client.wait(session.id, "op-1", 1).running)
         stepped, stepped_registers = client.step(session.id)
         self.assertEqual("stopped", stepped.state)
@@ -283,8 +295,23 @@ class AgentClientTests(unittest.TestCase):
         self.assertEqual(1, client.stop_trace(session.id))
         self.assertEqual("op-1", client.pause(session.id).id)
         self.assertEqual("op-1", client.stop(session.id).id)
-        self.assertEqual(27, len(transport.requests))
+        self.assertEqual(28, len(transport.requests))
         self.assertEqual(str(make_config().dosbox_workdir), transport.requests[1]["params"]["mounts"][0]["host_path"])
+
+    def test_run_until_predicates_refuse_ambiguous_shapes(self) -> None:
+        address = MemoryAddress.linear(0xB8000)
+        with self.assertRaisesRegex(ValueError, "require event"):
+            RunUntilPredicate("interrupt", address=address).to_rpc()
+        with self.assertRaisesRegex(ValueError, "require address"):
+            RunUntilPredicate("memory_write").to_rpc()
+        with self.assertRaisesRegex(ValueError, "register conditions"):
+            RunUntilPredicate("memory_write", address,
+                              condition=BreakpointCondition("ax", "eq", 1)).to_rpc()
+        encoded = RunUntilPredicate(
+            "interrupt", event=InterruptBreakpoint(0x21, ah=0x4C)
+        ).to_rpc()
+        self.assertEqual({"type": "software_interrupt", "number": "0x21", "ah": "0x4C"},
+                         encoded["event"])
 
     def test_watchpoint_request_and_stop_are_typed(self) -> None:
         watched_address = {"space": "segmented", "segment": "0x0812", "offset": "0x00000200"}

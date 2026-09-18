@@ -30,6 +30,8 @@ from .models import (
     OutputPage,
     OutputRecord,
     RegisterSnapshot,
+    RunUntilOperation,
+    RunUntilPredicate,
     Session,
     StopReason,
     SnapshotBlock,
@@ -271,6 +273,21 @@ class AgentClient:
 
     def continue_(self, session_id: str, request_id: str | None = None) -> Operation:
         return _operation(self.call("execution.continue", {"session_id": session_id}, request_id))
+
+    def run_until(self, session_id: str, predicate: RunUntilPredicate,
+                  request_id: str | None = None) -> RunUntilOperation:
+        if not isinstance(predicate, RunUntilPredicate):
+            raise TypeError("predicate must be a RunUntilPredicate")
+        result = self.call("execution.run_until", {
+            "session_id": session_id,
+            "predicate": predicate.to_rpc(),
+        }, request_id)
+        return RunUntilOperation(
+            id=_string(result, "operation_id"),
+            session_id=_string(result, "session_id"),
+            state_revision=_integer(result, "state_revision"),
+            predicate_id=_string(result, "predicate_id"),
+        )
 
     def pause(self, session_id: str, request_id: str | None = None) -> Operation:
         return _operation(self.call("execution.pause", {"session_id": session_id}, request_id))

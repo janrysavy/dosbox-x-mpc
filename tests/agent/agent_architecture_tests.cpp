@@ -191,6 +191,44 @@ TEST(AgentProtocol, ReportsBuildCapabilitiesAndLimits)
     EXPECT_NE(std::string::npos, response.find("\"interrupt_phase\":\"before_handler\""));
     EXPECT_NE(std::string::npos, response.find("\"conditional_kinds\":[\"execution\",\"interrupt\"]"));
     EXPECT_NE(std::string::npos, response.find("\"hit_filter\":true"));
+    EXPECT_NE(std::string::npos, response.find("\"run_until\":true"));
+    EXPECT_NE(std::string::npos, response.find("\"run_until_atomic\":true"));
+}
+
+TEST(AgentRunUntil, InstallsResumesStopsAndRemovesOnePrivatePredicate)
+{
+    dosbox_agent::AgentServer server;
+    std::string error;
+    ASSERT_TRUE(server.StartForTest(MakeTestConfig(), &error)) << error;
+    StartFixtureSession(&server);
+
+    const std::string invalid = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"bad-until\",\"method\":\"execution.run_until\","
+            "\"params\":{\"session_id\":\"ses-1\",\"predicate\":{\"kind\":\"execution\","
+            "\"address\":{\"space\":\"segmented\",\"segment\":\"0x1000\",\"offset\":\"0x00000106\"},"
+            "\"once\":true}}}");
+    EXPECT_NE(std::string::npos, invalid.find("implicitly one-shot"));
+
+    const std::string started = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"until\",\"method\":\"execution.run_until\","
+            "\"params\":{\"session_id\":\"ses-1\",\"predicate\":{\"kind\":\"execution\","
+            "\"address\":{\"space\":\"segmented\",\"segment\":\"0x1000\",\"offset\":\"0x00000106\"},"
+            "\"length\":1,\"hit_filter\":{\"skip\":0,\"every\":1}}}}" );
+    EXPECT_NE(std::string::npos, started.find("\"operation_id\":\"op-1\""));
+    EXPECT_NE(std::string::npos, started.find("\"predicate_id\":\"until-1\""));
+
+    const std::string stopped = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"wait-until\",\"method\":\"execution.wait\","
+            "\"params\":{\"session_id\":\"ses-1\",\"operation_id\":\"op-1\",\"timeout_ms\":1000}}");
+    EXPECT_NE(std::string::npos, stopped.find("\"kind\":\"run_until\""));
+    EXPECT_NE(std::string::npos, stopped.find("\"breakpoint_id\":\"until-1\""));
+    EXPECT_NE(std::string::npos, stopped.find("\"hit_count\":1"));
+
+    const std::string listed = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"list-after-until\",\"method\":\"breakpoints.list\","
+            "\"params\":{\"session_id\":\"ses-1\"}}");
+    EXPECT_NE(std::string::npos, listed.find("\"breakpoints\":[]"));
+    EXPECT_EQ(std::string::npos, listed.find("until-1"));
 }
 
 TEST(AgentTrace, PreservesOrderedTypedEffectsThroughPaging)

@@ -190,6 +190,7 @@ class InterruptEvent:
 @dataclass(frozen=True)
 class StopReason:
     kind: str
+    message: str | None = None
     address: MemoryAddress | None = None
     breakpoint_id: str | None = None
     psp: int | None = None
@@ -210,8 +211,10 @@ class StopReason:
         registers = value.get("registers")
         hit_count = value.get("hit_count")
         event = value.get("event")
+        message = value.get("message")
         return cls(
             kind=_string(value.get("kind"), "stop_reason.kind"),
+            message=_string(message, "stop_reason.message") if message is not None else None,
             address=MemoryAddress.from_rpc(_mapping(address, "stop_reason.address")) if address is not None else None,
             breakpoint_id=value.get("breakpoint_id") if isinstance(value.get("breakpoint_id"), str) else None,
             psp=_integer(psp, "stop_reason.psp") if psp is not None else None,
@@ -245,6 +248,14 @@ class Operation:
     id: str
     session_id: str
     state_revision: int
+
+
+@dataclass(frozen=True)
+class RunUntilOperation:
+    id: str
+    session_id: str
+    state_revision: int
+    predicate_id: str
 
 
 @dataclass(frozen=True)
@@ -384,6 +395,45 @@ class BreakpointHitFilter:
             skip=_integer(value.get("skip"), "breakpoint.hit_filter.skip"),
             every=_integer(value.get("every"), "breakpoint.hit_filter.every"),
         )
+
+
+@dataclass(frozen=True)
+class RunUntilPredicate:
+    kind: str
+    address: MemoryAddress | None = None
+    length: int = 1
+    condition: BreakpointCondition | None = None
+    hit_filter: BreakpointHitFilter = BreakpointHitFilter()
+    event: InterruptBreakpoint | None = None
+
+    def to_rpc(self) -> dict[str, Any]:
+        supported = ("execution", "interrupt", "memory_change", "memory_read",
+                     "memory_write", "memory_access")
+        if self.kind not in supported:
+            raise ValueError("unsupported run-until predicate kind")
+        if (not isinstance(self.length, int) or isinstance(self.length, bool) or
+                self.length <= 0):
+            raise ValueError("run-until predicate length must be positive")
+        if self.condition is not None and self.kind not in ("execution", "interrupt"):
+            raise ValueError("register conditions require an execution or interrupt predicate")
+        result: dict[str, Any] = {
+            "kind": self.kind,
+            "hit_filter": self.hit_filter.to_rpc(),
+        }
+        if self.condition is not None:
+            result["condition"] = self.condition.to_rpc()
+        if self.kind == "interrupt":
+            if self.event is None or self.address is not None:
+                raise ValueError("interrupt predicates require event and no address")
+            result["event"] = self.event.to_rpc()
+            return result
+        if self.address is None or self.event is not None:
+            raise ValueError("non-interrupt predicates require address and no event")
+        if self.kind in ("execution", "memory_change") and self.length != 1:
+            raise ValueError("execution and memory_change predicates require length 1")
+        result["address"] = self.address.to_rpc()
+        result["length"] = self.length
+        return result
 
 
 @dataclass(frozen=True)

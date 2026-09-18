@@ -319,6 +319,7 @@ JSON number 不能无损表达所有未来 guest address，v1 所有 guest 寄�
 | 方法 | 参数 | 成功结果 | 底层对应 |
 | --- | --- | --- | --- |
 | `execution.continue` | `session_id` | `operation_id`、`state=running` | `RUN` 及现有 normal loop。 |
+| `execution.run_until` | `session_id`, one structured `predicate` | `operation_id`, private `predicate_id`, `state=running` | Create one native one-shot predicate and resume in the same emulation-thread callback. |
 | `execution.pause` | `session_id` | `operation_id` | 调度 debugger break；不能从 worker thread 直接改 debugger state。 |
 | `execution.step` | `session_id`、`mode=into|over` | `stop_reason=step`、register snapshot | 复用 debugger 单步/F10/F11 行为。 |
 | `execution.wait` | `session_id`、`operation_id`、`timeout_ms` | stopped/exited 状态，或 `running=true` | 等待 continue、pause 或 stop 的终态。 |
@@ -337,7 +338,19 @@ JSON number 不能无损表达所有未来 guest address，v1 所有 guest 寄�
 }
 ```
 
-Valid `kind` values are `startup`, `step`, `breakpoint`, `pause`, `program_exit`, `session_stop`, and `fault`. A response with `execution.wait` `running=true` must not also contain `stop_reason`. `program_exit` is emitted only for a natural DOS exit of the captured target PSP; `session.stop` reports `session_stop`.
+Valid `kind` values are `startup`, `step`, `breakpoint`, `run_until`, `pause`, `program_exit`, `session_stop`, and `fault`. A response with `execution.wait` `running=true` must not also contain `stop_reason`. `program_exit` is emitted only for a natural DOS exit of the captured target PSP; `session.stop` reports `session_stop`.
+
+`execution.run_until` removes the controller race between a separate
+`breakpoints.create` and `execution.continue`. Its single predicate supports
+`execution`, `interrupt`, `memory_change`, `memory_read`, `memory_write`, or
+`memory_access`, with the same typed address/event, condition, and hit-filter
+rules as a breakpoint. It is implicitly one-shot and private: it never appears
+in `breakpoints.list`, is removed on its matching hit, and is also removed if a
+different stop wins. A matching wait result has `kind=run_until`, the returned
+`predicate_id`, `hit_count`, and the same address, interrupt, or exact-access
+evidence as the corresponding breakpoint kind. Creation and resume happen in
+one emulation-thread callback; an asynchronous setup or resume failure completes
+the operation with `kind=fault` instead of leaving the session running.
 
 ### 8.3 CPU state
 
@@ -575,6 +588,7 @@ read value is the value placed in AL at the complete-instruction boundary.
 - [x] `RPC-C12` - structured execution conditions and hit filters; `AGCOND.COM` reaches `CS:0106` with AX values 1 through 5. Condition `AX != 1`, `skip=1`, `every=2` stops only with AX 3 and 5 and reports condition-hit counts 2 and 4. Evidence: 2026-09-18, the named-pipe E2E produced those exact two stops without completing continue on rejected encounters.
 - [x] `RPC-C13` - exact DOS loader metadata and live MCB ownership; the COM fixture reports its 25 bytes, PSP-relative entry, separate load segment, and target process block, while the Turbo Pascal MZ probe's partial final page reports 3,408 bytes rather than the 3,488-byte rounded-page upper bound. Evidence: 2026-09-18, the named-pipe E2E passed and `re/harness/traces/agent-dos-map/session.txt` matched the mounted MZ header, relocated entry and stack with zero missing measurements.
 - [x] `RPC-C14` - semantic software-interrupt breakpoints; `AGINT.COM` first calls DOS version service, then asks DOS to terminate with `INT 21h`, AX=`4C07h`. A one-shot `INT 21h/AH=4Ch` selector ignores the earlier call, stops before the termination handler with actual AL=`07h`, disappears from the list, and continuation produces `program_exit` code 7. Evidence: 2026-09-18, three independent named-pipe E2E runs produced that exact event and exit; 73 GoogleTests passed.
+- [x] `RPC-C15` - atomic run-until predicates; one RPC installs one private native predicate and resumes in the same emulation-thread callback. The matching stop is `kind=run_until`, carries the returned `until-*` id and hit count, and the predicate is removed on either its hit or a competing stop. Evidence: 2026-09-18, 75 GoogleTests passed; three fresh named-pipe E2E runs each reached `AGENTFIX.COM` `CS:0109` with `predicate=until-1`, `hit_count=1`, and no user-visible temporary breakpoint. The Turbo Pascal probe transcript `re/harness/traces/agent-run-until/session.txt` atomically caught its write at `08AB:0028`, linear `B8144`, old `3E`, new `20`, post-IP `002B`, with zero missing measurements.
 
 ### 阶段 D：输出、trace 和兼容命令
 
@@ -586,10 +600,10 @@ read value is the value placed in AL at the complete-instruction boundary.
 
 ### 阶段 E：Client 和端到端
 
-- [x] `RPC-E01` - Python client unit tests; run `python -m unittest discover -s client\python\tests -t client\python -v`. Evidence: 2026-09-18, all 11 tests passed, including typed interrupt selectors/events, exact-watchpoint evidence, structured breakpoint policies, binary-length validation and malformed base64 rejection.
+- [x] `RPC-E01` - Python client unit tests; run `python -m unittest discover -s client\python\tests -t client\python -v`. Evidence: 2026-09-18, all 12 tests passed, including typed atomic run-until predicates, interrupt selectors/events, exact-watchpoint evidence, structured breakpoint policies, binary-length validation and malformed base64 rejection.
 - [x] `RPC-E02` - End-to-end fixture; run `python client\python\tests\test_e2e.py --config tests\agent\agent-test.env`. It covers start, execution and semantic interrupt breakpoints, continue, wait, registers, memory access, step, controller stop, natural DOS exit, child-PSP filtering, and continue/stop race ordering. A passing run exits zero.
 - [x] `RPC-E03` - DOSBox-X 既有单元测试未回归；执行 `& '.\bin\x64\Agent Debug SDL2\dosbox-x.exe' -tests`；退出码为 0 且输出 `Unit test completed: success`；证据：2026-09-02，`-tests` 退出码为 0；当前 Windows GUI build 不向调用 PowerShell 转发测试日志，`shell.cpp` 的 `RUN_ALL_TESTS()` 返回值为进程退出状态。
-- [x] `RPC-E04` - 干净运行可重复；执行 `if (Test-Path tests\agent\runtime) { Remove-Item -Recurse -Force tests\agent\runtime }; New-Item -ItemType Directory -Path tests\agent\runtime` 后，连续运行 E02 三次；三次均通过，trace 和输出无跨运行数据；证据：2026-09-18，`tests\agent\verify_client_clean_runs.ps1` created three independent runtime/config directories, deliberately cleared DOS `PATH`, and completed all three runs. The pathless case proves target startup invokes the internal `Z:\SYSTEM\MOUNT.COM` directly instead of racing AUTOEXEC's PATH initialization; every run also starts output sequence at 1 and trace sequence at 1, 2.
+- [x] `RPC-E04` - 干净运行可重复；执行 `if (Test-Path tests\agent\runtime) { Remove-Item -Recurse -Force tests\agent\runtime }; New-Item -ItemType Directory -Path tests\agent\runtime` 后，连续运行 E02 三次；三次均通过，trace 和输出无跨运行数据；证据：2026-09-18，`tests\agent\verify_client_clean_runs.ps1` created three independent runtime/config directories, deliberately cleared DOS `PATH`, and completed all three runs. Target startup now calls the internal mount implementation synchronously; for command lines over 100 bytes it seeds DOSBox-X's long-command buffer with those exact arguments, so the long per-run path cannot be replaced by stale shell input. Every run also starts output sequence at 1 and trace sequence at 1, 2.
 
 ## 12. 发布门禁
 

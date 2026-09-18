@@ -16,6 +16,7 @@ from dosbox_agent import (
     BreakpointCondition,
     BreakpointHitFilter,
     MemoryAddress,
+    RunUntilPredicate,
 )
 
 
@@ -100,19 +101,31 @@ def main() -> int:
         if client.stop_trace(session.id) != 2:
             raise AssertionError("trace.stop did not report two collected events")
 
-        breakpoint = client.create_execution_breakpoint(
+        run_until = client.run_until(
             session.id,
-            session.stop_reason.address.segment,
-            "0x00000109",
+            RunUntilPredicate(
+                "execution",
+                MemoryAddress.segmented(session.stop_reason.address.segment,
+                                        "0x00000109"),
+            ),
         )
-        operation = client.continue_(session.id)
-        stopped = client.wait(session.id, operation.id, 10000)
-        if stopped.running or stopped.session.stop_reason is None or stopped.session.stop_reason.kind != "breakpoint":
-            raise AssertionError("execution.continue did not stop on the created breakpoint")
+        stopped = client.wait(session.id, run_until.id, 10000)
+        reason = stopped.session.stop_reason
+        if (stopped.running or reason is None or reason.kind != "run_until" or
+                reason.breakpoint_id != run_until.predicate_id or reason.hit_count != 1):
+            raise AssertionError(f"execution.run_until did not stop on its predicate: {reason}")
+        if client.list_breakpoints(session.id):
+            raise AssertionError("completed run-until predicate leaked into the breakpoint list")
 
         registers = client.get_registers(session.id)
         if registers.instruction_pointer != "0x00000109":
-            raise AssertionError(f"unexpected breakpoint instruction pointer: {registers.instruction_pointer}")
+            raise AssertionError(f"unexpected run-until instruction pointer: {registers.instruction_pointer}")
+        print(
+            "RUN-UNTIL evidence: one RPC installed and resumed to "
+            f"{session.stop_reason.address.segment}:0x00000109; "
+            f"stop={reason.kind} predicate={reason.breakpoint_id} hit_count={reason.hit_count}; "
+            "no temporary breakpoint remained."
+        )
 
         code = client.read_memory(session.id, MemoryAddress.segmented(registers.segments["cs"], "0x00000100"), 6)
         if code.data != bytes((0xB8, 0x34, 0x12, 0xBB, 0x78, 0x56)):
