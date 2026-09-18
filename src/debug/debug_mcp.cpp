@@ -48,7 +48,7 @@
 #include <vector>
 
 /* ---------------------------------------------------------------------------
-   Transport layer (added for the Pyro II reverse-engineering harness)
+   Transport layer for the AI-driven reverse-engineering harness
 
    Upstream, the debugger's control channel is a TCP *client*: DOSBox-X connects to
    an external MCP server on 127.0.0.1, which needs SDL_net. Two things follow from
@@ -754,7 +754,7 @@ void WaitForOutgoingDrain()
 }
 
 /* ---------------------------------------------------------------------------
-   MEM and KEY (added for the Pyro II reverse-engineering harness)
+   MEM and KEY for the AI-driven reverse-engineering harness
 --------------------------------------------------------------------------- */
 
 /* Read one byte of guest memory the way the debugger's own dump commands do:
@@ -947,7 +947,7 @@ bool ControlInjectKey(const std::string& payload, std::string& error)
 
 
 /* ---------------------------------------------------------------------------
-   REGS (added for the Pyro II harness)
+   REGS for the AI-driven reverse-engineering harness
 --------------------------------------------------------------------------- */
 
 /* REGS: the live CPU registers, one line each for the 16- and 32-bit views.
@@ -993,7 +993,7 @@ bool ControlReadRegisters(std::vector<std::string>& lines, std::string& error)
 
 
 /* ---------------------------------------------------------------------------
-   PROG (added for the Pyro II harness)
+   PROG for the AI-driven reverse-engineering harness
 --------------------------------------------------------------------------- */
 
 /* PROG: where DOS put the program that is running.
@@ -1072,7 +1072,7 @@ bool ControlReadProgram(std::vector<std::string>& lines, std::string& error)
 
 
 /* ---------------------------------------------------------------------------
-   SHOT and PAUSE/RESUME (added for the Pyro II harness)
+   SHOT and PAUSE/RESUME for the AI-driven reverse-engineering harness
 --------------------------------------------------------------------------- */
 
 /* PAUSE and RESUME flip the emulator's own pause flag. Nothing goes through the
@@ -1117,8 +1117,8 @@ static const uint8_t* HarnessFontPage(const int page)
    game uploads its own glyphs and reprograms the DAC, so neither can be
    assumed. One SHOT request writes both, so the two views can never disagree
    about which moment they describe. */
-/* A snapshot has to be one moment. Pyro fades its palette while the intro runs,
-   so reading the planes and the frame without stopping the emulator produces
+/* A snapshot has to be one moment. A guest may change its palette while it runs,
+   so reading the planes and the frame without stopping the emulator can produce
    pieces of different moments -- which is exactly how the first version of this
    produced a picture whose colours the planes could not explain. Pausing here
    costs one frame and makes every file describe the same instant; RAII, so the

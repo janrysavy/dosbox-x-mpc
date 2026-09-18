@@ -1,3 +1,10 @@
+> [!IMPORTANT]
+> This repository is the [`janrysavy/dosbox-x-mpc`](https://github.com/janrysavy/dosbox-x-mpc)
+> fork focused on AI-driven reverse engineering of DOS software. Its default
+> `ai-re-agent` branch adds a supervised JSON-RPC debugger agent. Read
+> [AI_REVERSE_ENGINEERING.md](AI_REVERSE_ENGINEERING.md) before using or rebasing the fork. The
+> current protocol is JSON-RPC over a Windows named pipe; despite the repository
+> name, it is not yet a Model Context Protocol server.
 
 **Welcome to the DOSBox-X project homepage located on GitHub.**
 
