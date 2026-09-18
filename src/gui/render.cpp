@@ -22,6 +22,7 @@
 #include <math.h>
 #include <fstream>
 #include <sstream>
+#include <vector>
 
 #include "dosbox.h"
 #include "logging.h"
@@ -57,6 +58,9 @@ bool useTraditionalRenderCache = false;
 
 unsigned char *scalerSourceCacheBuffer=NULL;
 unsigned int scalerSourceCacheBufferSize=0;
+static std::vector<uint8_t> stoppedFrameCache;
+static unsigned int stoppedFramePitch=0;
+static unsigned int stoppedFrameHeight=0;
 
 void scalerWriteCacheFree(void);
 void scalerWriteCacheAlloc(unsigned int p);
@@ -529,6 +533,53 @@ void RENDER_EndUpdate( bool abort ) {
         pause_on_vsync = false;
         PauseDOSBox(true);
     }
+}
+
+bool RENDER_CaptureFrameForRedraw(void)
+{
+	RENDER_DiscardFrameForRedraw();
+	if (render.disablerender || scalerSourceCacheBuffer == NULL ||
+	    render.scale.cachePitch == 0 || render.src.height == 0)
+		return false;
+
+	const size_t frame_bytes = static_cast<size_t>(render.scale.cachePitch) *
+	                           static_cast<size_t>(render.src.height);
+	if (frame_bytes > scalerSourceCacheBufferSize)
+		return false;
+	stoppedFrameCache.assign(scalerSourceCacheBuffer,
+	                         scalerSourceCacheBuffer + frame_bytes);
+	stoppedFramePitch = render.scale.cachePitch;
+	stoppedFrameHeight = render.src.height;
+	return true;
+}
+
+void RENDER_DiscardFrameForRedraw(void)
+{
+	stoppedFrameCache.clear();
+	stoppedFramePitch = 0;
+	stoppedFrameHeight = 0;
+}
+
+bool RENDER_RedrawFromCache(void)
+{
+	if (!render.active || render.disablerender || stoppedFrameCache.empty() ||
+	    stoppedFramePitch != render.scale.cachePitch ||
+	    stoppedFrameHeight != render.src.height)
+		return false;
+
+	/* A debugger can stop between two scanlines. Finish that host-side update
+	 * without changing guest state. clearCache deliberately dirties the live
+	 * cache to force every preserved line through the scaler. */
+	if (render.updating)
+		RENDER_EndUpdate(true);
+	render.scale.clearCache = true;
+	if (!RENDER_StartUpdate())
+		return false;
+
+	for (Bitu line = 0; line < render.src.height; ++line)
+		RENDER_DrawLine(stoppedFrameCache.data() + line * stoppedFramePitch);
+	RENDER_EndUpdate(false);
+	return true;
 }
 
 static Bitu MakeAspectTable(Bitu skip,Bitu height,double scaley,Bitu miny) {

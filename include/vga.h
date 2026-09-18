@@ -752,6 +752,7 @@ void VGA_DetermineMode(void);
 void VGA_SetupHandlers(void);
 void VGA_StartResize(Bitu delay=50);
 void VGA_SetupDrawing(Bitu val);
+bool VGA_DebugRenderCurrentTextFrame(void);
 void VGA_CheckScanLength(void);
 void VGA_ChangedBank(void);
 

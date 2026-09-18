@@ -4136,6 +4136,49 @@ void VGA_RenderOnDemandComplete(void) {
         VGA_DrawSingleLine(0);
 }
 
+bool VGA_DebugRenderCurrentTextFrame(void)
+{
+    /* The headless debugger can stop after the upper scanlines were drawn from
+     * the old text plane and before the lower scanlines see the program's new
+     * one. Completing that frame preserves the tear. Render one synthetic full
+     * text frame from current VGA memory instead, then restore the scanout state
+     * so CPU time and the real pending line events are untouched. */
+    if (vga.mode != M_TEXT || vga.draw.mode != DRAWLINE ||
+        vga.dosboxig.svga || vga.draw.lines_total == 0)
+        return false;
+
+    if (render.updating)
+        RENDER_EndUpdate(true);
+
+    const auto saved_draw = vga.draw;
+    const bool saved_render_on_demand = is_vga_rendering_on_demand;
+    const auto saved_frame_count = vga_mode_frames_since_time_base;
+
+    is_vga_rendering_on_demand = true;
+    vga.draw.lines_done = 0;
+    vga.draw.hsync_events = 0;
+    vga.draw.render_step = 0;
+    vga.draw.address_line = vga.config.hlines_skip;
+    vga.draw.address = vga.config.real_start + vga.draw.bytes_skip;
+    vga.draw.byte_panning_shift = 2;
+    vga.draw.cursor.address = vga.config.cursor_start << vga.config.addr_shift;
+    vga.draw.address <<= vga.config.addr_shift;
+
+    if (!RENDER_StartUpdate()) {
+        vga.draw = saved_draw;
+        is_vga_rendering_on_demand = saved_render_on_demand;
+        vga_mode_frames_since_time_base = saved_frame_count;
+        return false;
+    }
+    VGA_RenderOnDemandComplete();
+    const bool complete = vga.draw.lines_done >= vga.draw.lines_total;
+
+    vga.draw = saved_draw;
+    is_vga_rendering_on_demand = saved_render_on_demand;
+    vga_mode_frames_since_time_base = saved_frame_count;
+    return complete;
+}
+
 /* WARNING: Do not call this more than once per frame! Events will get missed if you do. */
 static void OnDemandCompleteFrame(void) {
     if (is_vga_rendering_on_demand) {

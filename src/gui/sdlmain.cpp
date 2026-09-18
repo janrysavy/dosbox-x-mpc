@@ -6043,6 +6043,12 @@ void GFX_Events() {
                 continue;
             case SDL_WINDOWEVENT_RESTORED:
                 GFX_ResetScreen();
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+                /* Restore replaces the SDL surface. Rebuild it after the reset;
+                 * an earlier EXPOSED event may already have been consumed. */
+                if (DEBUG_AgentIsStopped())
+                    RENDER_RedrawFromCache();
+#endif
                 eatRestoredWindow = true;
                 continue;
             case SDL_WINDOWEVENT_RESIZED:
@@ -6051,6 +6057,17 @@ void GFX_Events() {
             case SDL_WINDOWEVENT_EXPOSED:
                 if (sdl.desktop.type == SCREEN_GAMELINK) break;
                 if (sdl.draw.callback) sdl.draw.callback( GFX_CallBackRedraw );
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+                /* A headless debugger stop has no next VGA frame on which the
+                 * normal redraw request can take effect.  Windows invalidates
+                 * the output surface when another window uncovers it, so
+                 * waiting for that frame leaves only a damaged strip (or a
+                 * black surface) until the target resumes. Replay the retained
+                 * scaler-source frame through the normal renderer without
+                 * executing a guest instruction. */
+                if (DEBUG_AgentIsStopped())
+                    RENDER_RedrawFromCache();
+#endif
                 continue;
             case SDL_WINDOWEVENT_LEAVE:
 #if DOSBOXMENU_TYPE == DOSBOXMENU_SDLDRAW

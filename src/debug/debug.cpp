@@ -47,6 +47,7 @@ using namespace std;
 #include "callback.h"
 #include "inout.h"
 #include "paging.h"
+#include "render.h"
 #include "debug_inc.h"
 #include "../cpu/lazyflags.h"
 #include "control.h"
@@ -1119,6 +1120,11 @@ bool DEBUG_AgentStep(bool over, bool* continued)
 	mustCompleteInstruction = false;
 	*continued = false;
 	return true;
+}
+
+bool DEBUG_AgentIsStopped(void)
+{
+	return debug_headless_stop && debugging && !debug_running;
 }
 
 bool DEBUG_AgentResumeAfterTerminate(void)
@@ -5388,6 +5394,10 @@ void DEBUG_Enable_Handler(bool pressed) {
            the agent's single-step is gated on, and DEBUG_Loop is the loop the
            agent's command queue is pumped from -- so both are kept, and the
            agent is told it has arrived, exactly as the console path does. */
+        if (VGA_DebugRenderCurrentTextFrame())
+            RENDER_CaptureFrameForRedraw();
+        else
+            RENDER_DiscardFrameForRedraw();
         DOSBOX_SetLoop(&DEBUG_Loop);
         GFX_SetTitle(-1,-1,-1,false);
         runnormal = false;

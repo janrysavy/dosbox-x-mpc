@@ -40,6 +40,7 @@ extern bool debug_headless_stop;
 
 #if C_DEBUG
 bool DEBUG_AgentStep(bool over, bool* continued);
+bool DEBUG_AgentIsStopped(void);
 bool DEBUG_AgentResumeAfterTerminate(void);
 bool DEBUG_AgentCanStartTarget(void);
 uint64_t DEBUG_AgentEntryBreakpointSequence(void);
