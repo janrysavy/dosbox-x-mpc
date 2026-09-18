@@ -197,6 +197,57 @@ TEST(AgentProtocol, ReportsBuildCapabilitiesAndLimits)
     EXPECT_NE(std::string::npos, response.find("\"host_files\":false"));
     EXPECT_NE(std::string::npos, response.find("\"max_checkpoint_bytes\":536870912"));
     EXPECT_NE(std::string::npos, response.find("\"max_checkpoints\":8"));
+    EXPECT_NE(std::string::npos, response.find("\"device_keyboard\":true"));
+    EXPECT_NE(std::string::npos, response.find("\"ordered_keyboard_batch\":true"));
+    EXPECT_NE(std::string::npos, response.find("\"keyboard_keys\":[\"1\""));
+    EXPECT_NE(std::string::npos, response.find("\"joystick_axis_min\":-32768"));
+    EXPECT_NE(std::string::npos, response.find("\"joystick_axis_max\":32767"));
+}
+
+TEST(AgentInput, DeliversOrderedDeviceEventsAndReportsExactStateWhileRunning)
+{
+    dosbox_agent::AgentServer server;
+    std::string error;
+    ASSERT_TRUE(server.StartForTest(MakeTestConfig(), &error)) << error;
+    StartFixtureSession(&server);
+
+    const std::string invalid = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"bad-key\",\"method\":\"input.keyboard\","
+            "\"params\":{\"session_id\":\"ses-1\",\"events\":[{\"key\":\"not-a-key\",\"pressed\":true}]}}" );
+    EXPECT_NE(std::string::npos, invalid.find("-32602"));
+
+    const std::string pressed = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"keys-down\",\"method\":\"input.keyboard\","
+            "\"params\":{\"session_id\":\"ses-1\",\"events\":["
+            "{\"key\":\"left_shift\",\"pressed\":true},"
+            "{\"key\":\"up\",\"pressed\":true}]}}" );
+    EXPECT_NE(std::string::npos, pressed.find("\"pressed\":[\"left_shift\",\"up\"]"));
+    EXPECT_NE(std::string::npos, pressed.find("\"state_revision\":2"));
+
+    const std::string joystick = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"joy\",\"method\":\"input.joystick\","
+            "\"params\":{\"session_id\":\"ses-1\",\"index\":0,\"enabled\":true,"
+            "\"x\":-32768,\"y\":32767,\"button0\":true,\"button1\":false}}" );
+    EXPECT_NE(std::string::npos, joystick.find("\"axes\":{\"x\":-32768,\"y\":32767}"));
+    EXPECT_NE(std::string::npos, joystick.find("\"buttons\":[true,false]"));
+
+    const std::string running = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"run\",\"method\":\"execution.continue\","
+            "\"params\":{\"session_id\":\"ses-1\"}}" );
+    EXPECT_NE(std::string::npos, running.find("\"state\":\"running\""));
+
+    const std::string released = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"keys-up\",\"method\":\"input.keyboard\","
+            "\"params\":{\"session_id\":\"ses-1\",\"events\":["
+            "{\"key\":\"up\",\"pressed\":false},"
+            "{\"key\":\"left_shift\",\"pressed\":false}]}}" );
+    EXPECT_NE(std::string::npos, released.find("\"pressed\":[]"));
+
+    const std::string state = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"input-state\",\"method\":\"input.state\","
+            "\"params\":{\"session_id\":\"ses-1\"}}" );
+    EXPECT_NE(std::string::npos, state.find("\"pressed\":[]"));
+    EXPECT_NE(std::string::npos, state.find("\"enabled\":true"));
 }
 
 TEST(AgentRunUntil, InstallsResumesStopsAndRemovesOnePrivatePredicate)

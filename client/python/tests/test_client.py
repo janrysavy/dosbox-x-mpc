@@ -20,6 +20,7 @@ from dosbox_agent import (
     BreakpointNotFoundError,
     CheckpointNotFoundError,
     InterruptBreakpoint,
+    KeyboardEvent,
     InvalidBinaryLengthError,
     MemoryAddress,
     MemoryPreconditionFailedError,
@@ -343,6 +344,58 @@ class AgentClientTests(unittest.TestCase):
         ).to_rpc()
         self.assertEqual({"type": "software_interrupt", "number": "0x21", "ah": "0x4C"},
                          encoded["event"])
+
+    def test_device_input_methods_are_typed_and_preserve_order(self) -> None:
+        def input_state(revision: int, pressed: list[str], enabled: bool = False,
+                        x: int = 0, y: int = 0,
+                        buttons: list[bool] | None = None) -> dict:
+            return {
+                "session_id": "ses-1", "state_revision": revision, "state": "stopped",
+                "keyboard": {"pressed": pressed},
+                "joysticks": [
+                    {"index": 0, "enabled": enabled, "axes": {"x": x, "y": y},
+                     "buttons": buttons if buttons is not None else [False, False]},
+                    {"index": 1, "enabled": False, "axes": {"x": 0, "y": 0},
+                     "buttons": [False, False]},
+                ],
+            }
+
+        def handler(request: dict) -> dict:
+            if request["method"] == "input.keyboard":
+                return {"result": input_state(4, ["left_shift", "up"])}
+            if request["method"] == "input.joystick":
+                return {"result": input_state(5, [], True, -32768, 32767, [True, False])}
+            if request["method"] == "input.state":
+                return {"result": input_state(5, [])}
+            self.fail(f"unexpected method {request['method']}")
+
+        transport = FakeTransport(handler)
+        client = AgentClient(make_config(), transport)
+        keyboard = client.send_keyboard("ses-1", [
+            KeyboardEvent("left_shift", True), KeyboardEvent("up", True),
+        ])
+        self.assertEqual(("left_shift", "up"), keyboard.pressed_keys)
+        self.assertEqual([
+            {"key": "left_shift", "pressed": True},
+            {"key": "up", "pressed": True},
+        ], transport.requests[0]["params"]["events"])
+
+        joystick = client.set_joystick(
+            "ses-1", 0, enabled=True, x=-32768, y=32767,
+            button0=True, button1=False,
+        )
+        self.assertTrue(joystick.joysticks[0].enabled)
+        self.assertEqual((-32768, 32767),
+                         (joystick.joysticks[0].x, joystick.joysticks[0].y))
+        self.assertEqual((True, False), joystick.joysticks[0].buttons)
+        self.assertEqual(5, client.get_input_state("ses-1").state_revision)
+
+        with self.assertRaisesRegex(ValueError, "between 1 and 32"):
+            client.send_keyboard("ses-1", [])
+        with self.assertRaisesRegex(TypeError, "KeyboardEvent"):
+            client.send_keyboard("ses-1", [("up", True)])  # type: ignore[list-item]
+        with self.assertRaisesRegex(ValueError, "-32768"):
+            client.set_joystick("ses-1", 0, x=32768)
 
     def test_watchpoint_request_and_stop_are_typed(self) -> None:
         watched_address = {"space": "segmented", "segment": "0x0812", "offset": "0x00000200"}

@@ -8,6 +8,8 @@
 #include "debug.h"
 #include "dos_inc.h"
 #include "dos_mcb.h"
+#include "joystick.h"
+#include "keyboard.h"
 #include "mem.h"
 #include "paging.h"
 #include "pic.h"
@@ -25,6 +27,7 @@ extern std::string full_arguments;
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <limits>
 #include <utility>
@@ -32,6 +35,54 @@ extern std::string full_arguments;
 namespace dosbox_agent {
 
 namespace {
+
+#if C_DEBUG
+static const KBD_KEYS kKeyboardKeys[] = {
+    KBD_1, KBD_2, KBD_3, KBD_4, KBD_5, KBD_6, KBD_7, KBD_8, KBD_9, KBD_0,
+    KBD_q, KBD_w, KBD_e, KBD_r, KBD_t, KBD_y, KBD_u, KBD_i, KBD_o, KBD_p,
+    KBD_a, KBD_s, KBD_d, KBD_f, KBD_g, KBD_h, KBD_j, KBD_k, KBD_l,
+    KBD_z, KBD_x, KBD_c, KBD_v, KBD_b, KBD_n, KBD_m,
+    KBD_f1, KBD_f2, KBD_f3, KBD_f4, KBD_f5, KBD_f6,
+    KBD_f7, KBD_f8, KBD_f9, KBD_f10, KBD_f11, KBD_f12,
+    KBD_esc, KBD_tab, KBD_backspace, KBD_enter, KBD_space,
+    KBD_leftalt, KBD_rightalt, KBD_leftctrl, KBD_rightctrl,
+    KBD_leftshift, KBD_rightshift, KBD_capslock, KBD_scrolllock, KBD_numlock,
+    KBD_grave, KBD_minus, KBD_equals, KBD_backslash, KBD_leftbracket,
+    KBD_rightbracket, KBD_semicolon, KBD_quote, KBD_period, KBD_comma, KBD_slash,
+    KBD_printscreen, KBD_pause,
+    KBD_insert, KBD_home, KBD_pageup, KBD_delete, KBD_end, KBD_pagedown,
+    KBD_left, KBD_up, KBD_down, KBD_right,
+    KBD_kp1, KBD_kp2, KBD_kp3, KBD_kp4, KBD_kp5,
+    KBD_kp6, KBD_kp7, KBD_kp8, KBD_kp9, KBD_kp0,
+    KBD_kpdivide, KBD_kpmultiply, KBD_kpminus, KBD_kpplus,
+    KBD_kpenter, KBD_kpperiod
+};
+
+static_assert(sizeof(kKeyboardKeys) / sizeof(kKeyboardKeys[0]) ==
+                      static_cast<std::size_t>(KeyboardKey::Last),
+              "Keyboard protocol and DOSBox key tables must stay aligned");
+
+KBD_KEYS NativeKeyboardKey(const KeyboardKey key)
+{
+    const std::size_t index = static_cast<std::size_t>(key);
+    return index < sizeof(kKeyboardKeys) / sizeof(kKeyboardKeys[0]) ?
+            kKeyboardKeys[index] : KBD_NONE;
+}
+
+float NativeJoystickAxis(const std::int32_t value)
+{
+    return value < 0 ? static_cast<float>(value) / 32768.0f :
+                       static_cast<float>(value) / 32767.0f;
+}
+
+std::int32_t ProtocolJoystickAxis(const float value)
+{
+    const float limited = (std::max)(-1.0f, (std::min)(1.0f, value));
+    return limited < 0.0f ?
+            static_cast<std::int32_t>(std::lround(limited * 32768.0f)) :
+            static_cast<std::int32_t>(std::lround(limited * 32767.0f));
+}
+#endif
 
 bool RequireEmulationThread(std::string* error)
 {
@@ -416,6 +467,100 @@ bool DebuggerAdapter::GetRegisters(RegisterSnapshot* registers, std::string* err
     registers->cpu_mode = !cpu.pmode ? "real" : ((reg_flags & FLAG_VM) ? "v86" : "protected");
     return true;
 #else
+    return false;
+#endif
+}
+
+bool DebuggerAdapter::GetInputState(InputState* state, std::string* error) const
+{
+#if C_DEBUG
+    if (!RequireEmulationThread(error) || !RequireAvailable(error))
+        return false;
+    if (state == NULL) {
+        if (error != NULL)
+            *error = "Input state output is null";
+        return false;
+    }
+
+    state->pressed_keys.clear();
+    for (std::size_t index = 0;
+         index < static_cast<std::size_t>(KeyboardKey::Last); ++index) {
+        if (KEYBOARD_IsKeyPressed(kKeyboardKeys[index]))
+            state->pressed_keys.push_back(static_cast<KeyboardKey>(index));
+    }
+    for (std::size_t index = 0; index < 2; ++index) {
+        JoystickInputState& joystick = state->joysticks[index];
+        joystick.enabled = JOYSTICK_IsEnabled(static_cast<Bitu>(index));
+        joystick.x = ProtocolJoystickAxis(JOYSTICK_GetMove_X(static_cast<Bitu>(index)));
+        joystick.y = ProtocolJoystickAxis(JOYSTICK_GetMove_Y(static_cast<Bitu>(index)));
+        joystick.button0 = JOYSTICK_GetButton(static_cast<Bitu>(index), 0);
+        joystick.button1 = JOYSTICK_GetButton(static_cast<Bitu>(index), 1);
+    }
+    return true;
+#else
+    (void)state;
+    if (error != NULL)
+        *error = "Debugger support is not compiled in";
+    return false;
+#endif
+}
+
+bool DebuggerAdapter::ApplyKeyboardInput(const std::vector<KeyboardInputEvent>& events,
+                                         InputState* state,
+                                         std::string* error) const
+{
+#if C_DEBUG
+    if (!RequireEmulationThread(error) || !RequireAvailable(error))
+        return false;
+    for (std::vector<KeyboardInputEvent>::const_iterator event = events.begin();
+         event != events.end(); ++event) {
+        const KBD_KEYS key = NativeKeyboardKey(event->key);
+        if (key == KBD_NONE) {
+            if (error != NULL)
+                *error = "Keyboard event contains an unsupported key";
+            return false;
+        }
+        KEYBOARD_AddKey(key, event->pressed);
+    }
+    return GetInputState(state, error);
+#else
+    (void)events;
+    (void)state;
+    if (error != NULL)
+        *error = "Debugger support is not compiled in";
+    return false;
+#endif
+}
+
+bool DebuggerAdapter::ApplyJoystickInput(const JoystickInputUpdate& update,
+                                         InputState* state,
+                                         std::string* error) const
+{
+#if C_DEBUG
+    if (!RequireEmulationThread(error) || !RequireAvailable(error))
+        return false;
+    if (update.index >= 2) {
+        if (error != NULL)
+            *error = "Joystick index must be 0 or 1";
+        return false;
+    }
+    const Bitu index = static_cast<Bitu>(update.index);
+    if (update.has_enabled)
+        JOYSTICK_Enable(index, update.enabled);
+    if (update.has_x)
+        JOYSTICK_Move_X(index, NativeJoystickAxis(update.x));
+    if (update.has_y)
+        JOYSTICK_Move_Y(index, NativeJoystickAxis(update.y));
+    if (update.has_button0)
+        JOYSTICK_Button(index, 0, update.button0);
+    if (update.has_button1)
+        JOYSTICK_Button(index, 1, update.button1);
+    return GetInputState(state, error);
+#else
+    (void)update;
+    (void)state;
+    if (error != NULL)
+        *error = "Debugger support is not compiled in";
     return false;
 #endif
 }

@@ -467,6 +467,39 @@ print(written.before_sha256, written.after_sha256)
 
 如果目标在读取和写入之间发生变化，server 返回 `MemoryPreconditionFailedError`，本次写入不会发生。写入超时后不要自动重试；如果要由 Agent 明确重试，复用同一个 `request_id` 并确认请求 payload 完全相同。
 
+### 6.8 Deliver physical keyboard and joystick input
+
+Use physical input when the question depends on make/break timing, modifier
+state, held-key repeat, chords, or the gameport. A chord is one ordered batch;
+release its keys explicitly, normally in reverse order:
+
+```python
+from dosbox_agent import KeyboardEvent
+
+state = agent.send_keyboard(session.id, [
+    KeyboardEvent("left_ctrl", True),
+    KeyboardEvent("f1", True),
+])
+assert state.pressed_keys == ("left_ctrl", "f1")
+
+agent.send_keyboard(session.id, [
+    KeyboardEvent("f1", False),
+    KeyboardEvent("left_ctrl", False),
+])
+
+state = agent.set_joystick(
+    session.id, 0, enabled=True, x=0, y=0,
+    button0=True, button1=False,
+)
+assert state.joysticks[0].buttons == (True, False)
+```
+
+`send_key` is the single-event convenience method and `get_input_state` reads
+the same exact native state. All four calls are allowed while execution is
+running. Key names and axis limits come from `agent.capabilities`; do not invent
+scan-code aliases. Always release keys that a script presses, including on an
+error path, so a later experiment does not inherit a held device key.
+
 ## 7. Trace 和 debugger 输出
 
 ### 7.1 CPU trace

@@ -74,6 +74,11 @@ static JsonValue Number(const std::uint64_t value)
     return JsonValue::Number(std::to_string(value));
 }
 
+static JsonValue SignedNumber(const std::int64_t value)
+{
+    return JsonValue::Number(std::to_string(value));
+}
+
 static bool GetString(const JsonValue& object, const char* name, std::string* value)
 {
     const JsonValue* field = object.Find(name);
@@ -108,6 +113,77 @@ static bool GetUnsignedInteger(const JsonValue& value, std::uint32_t* result)
 
     *result = static_cast<std::uint32_t>(parsed);
     return true;
+}
+
+static bool GetSignedInteger(const JsonValue& value, std::int32_t* result)
+{
+    if (value.type != JsonType::Number || value.text.empty())
+        return false;
+    std::size_t index = 0;
+    bool negative = false;
+    if (value.text[0] == '-') {
+        negative = true;
+        index = 1;
+    }
+    if (index == value.text.size())
+        return false;
+    std::uint64_t magnitude = 0;
+    for (; index < value.text.size(); ++index) {
+        const char character = value.text[index];
+        if (!std::isdigit(static_cast<unsigned char>(character)))
+            return false;
+        magnitude = magnitude * 10u + static_cast<unsigned int>(character - '0');
+        const std::uint64_t limit = negative ? 2147483648ull : 2147483647ull;
+        if (magnitude > limit)
+            return false;
+    }
+    *result = negative ?
+            static_cast<std::int32_t>(-static_cast<std::int64_t>(magnitude)) :
+            static_cast<std::int32_t>(magnitude);
+    return true;
+}
+
+static const char* const kKeyboardKeyNames[] = {
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
+    "q", "w", "e", "r", "t", "y", "u", "i", "o", "p",
+    "a", "s", "d", "f", "g", "h", "j", "k", "l",
+    "z", "x", "c", "v", "b", "n", "m",
+    "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12",
+    "escape", "tab", "backspace", "enter", "space",
+    "left_alt", "right_alt", "left_ctrl", "right_ctrl", "left_shift", "right_shift",
+    "caps_lock", "scroll_lock", "num_lock",
+    "grave", "minus", "equals", "backslash", "left_bracket", "right_bracket",
+    "semicolon", "quote", "period", "comma", "slash",
+    "print_screen", "pause",
+    "insert", "home", "page_up", "delete", "end", "page_down",
+    "left", "up", "down", "right",
+    "keypad_1", "keypad_2", "keypad_3", "keypad_4", "keypad_5",
+    "keypad_6", "keypad_7", "keypad_8", "keypad_9", "keypad_0",
+    "keypad_divide", "keypad_multiply", "keypad_minus", "keypad_plus",
+    "keypad_enter", "keypad_period"
+};
+
+static_assert(sizeof(kKeyboardKeyNames) / sizeof(kKeyboardKeyNames[0]) ==
+                      static_cast<std::size_t>(KeyboardKey::Last),
+              "Keyboard protocol names and enum must stay aligned");
+
+static const char* KeyboardKeyName(const KeyboardKey key)
+{
+    const std::size_t index = static_cast<std::size_t>(key);
+    return index < sizeof(kKeyboardKeyNames) / sizeof(kKeyboardKeyNames[0]) ?
+            kKeyboardKeyNames[index] : "";
+}
+
+static bool ParseKeyboardKey(const std::string& name, KeyboardKey* key)
+{
+    for (std::size_t index = 0;
+         index < sizeof(kKeyboardKeyNames) / sizeof(kKeyboardKeyNames[0]); ++index) {
+        if (name == kKeyboardKeyNames[index]) {
+            *key = static_cast<KeyboardKey>(index);
+            return true;
+        }
+    }
+    return false;
 }
 
 static bool ParseCursor(const JsonValue* value,
@@ -532,6 +608,9 @@ static bool IsKnownMethod(const std::string& method)
            method == "execution.step" ||
            method == "execution.wait" ||
            method == "state.get_registers" ||
+           method == "input.keyboard" ||
+           method == "input.joystick" ||
+           method == "input.state" ||
            method == "dos.memory_map" ||
            method == "checkpoints.create" ||
            method == "checkpoints.list" ||
@@ -608,6 +687,7 @@ public:
         std::string error;
         MemoryAccessError access_error;
         RegisterSnapshot registers;
+        InputState input_state;
         VideoSnapshot video_snapshot;
         DosMemoryMap dos_memory_map;
         CheckpointState checkpoint;
@@ -741,6 +821,13 @@ public:
                                     const std::string& workdir,
                                     std::string* error) const = 0;
     virtual bool GetRegisters(RegisterSnapshot* registers, std::string* error) const = 0;
+    virtual bool ApplyKeyboardInput(const std::vector<KeyboardInputEvent>& events,
+                                    InputState* state,
+                                    std::string* error) const = 0;
+    virtual bool ApplyJoystickInput(const JoystickInputUpdate& update,
+                                    InputState* state,
+                                    std::string* error) const = 0;
+    virtual bool GetInputState(InputState* state, std::string* error) const = 0;
     virtual bool CaptureVideoSnapshot(VideoSnapshot* snapshot, std::string* error) const = 0;
     virtual bool Step(StepMode mode, bool* continued, std::string* error) const = 0;
     virtual bool ReadMemory(const MemoryAddress& address,
@@ -810,6 +897,9 @@ public:
     AGENT_RUNTIME_FORWARD(Pause, bool Pause(std::string* error) const, (error))
     AGENT_RUNTIME_FORWARD(StartTargetAtEntry, bool StartTargetAtEntry(const std::string& command, const std::vector<std::string>& arguments, const std::string& workdir, std::string* error) const, (command, arguments, workdir, error))
     AGENT_RUNTIME_FORWARD(GetRegisters, bool GetRegisters(RegisterSnapshot* registers, std::string* error) const, (registers, error))
+    AGENT_RUNTIME_FORWARD(ApplyKeyboardInput, bool ApplyKeyboardInput(const std::vector<KeyboardInputEvent>& events, InputState* state, std::string* error) const, (events, state, error))
+    AGENT_RUNTIME_FORWARD(ApplyJoystickInput, bool ApplyJoystickInput(const JoystickInputUpdate& update, InputState* state, std::string* error) const, (update, state, error))
+    AGENT_RUNTIME_FORWARD(GetInputState, bool GetInputState(InputState* state, std::string* error) const, (state, error))
     AGENT_RUNTIME_FORWARD(CaptureVideoSnapshot, bool CaptureVideoSnapshot(VideoSnapshot* snapshot, std::string* error) const, (snapshot, error))
     AGENT_RUNTIME_FORWARD(Step, bool Step(StepMode mode, bool* continued, std::string* error) const, (mode, continued, error))
     AGENT_RUNTIME_FORWARD(ReadMemory, bool ReadMemory(const MemoryAddress& address, std::size_t length, std::vector<std::uint8_t>* data, MemoryAccessError* access_error, std::string* error) const, (address, length, data, access_error, error))
@@ -932,6 +1022,46 @@ public:
         snapshot->crtc.assign({0x5f, 0x4f});
         return true;
     }
+    bool ApplyKeyboardInput(const std::vector<KeyboardInputEvent>& events,
+                            InputState* state,
+                            std::string*) const override
+    {
+        for (std::vector<KeyboardInputEvent>::const_iterator event = events.begin();
+             event != events.end(); ++event) {
+            std::vector<KeyboardKey>::iterator existing =
+                    std::find(fake_input_state.pressed_keys.begin(),
+                              fake_input_state.pressed_keys.end(), event->key);
+            if (event->pressed && existing == fake_input_state.pressed_keys.end())
+                fake_input_state.pressed_keys.push_back(event->key);
+            else if (!event->pressed && existing != fake_input_state.pressed_keys.end())
+                fake_input_state.pressed_keys.erase(existing);
+        }
+        if (state != NULL)
+            *state = fake_input_state;
+        return state != NULL;
+    }
+    bool ApplyJoystickInput(const JoystickInputUpdate& update,
+                            InputState* state,
+                            std::string*) const override
+    {
+        if (update.index >= 2 || state == NULL)
+            return false;
+        JoystickInputState& joystick = fake_input_state.joysticks[update.index];
+        if (update.has_enabled) joystick.enabled = update.enabled;
+        if (update.has_x) joystick.x = update.x;
+        if (update.has_y) joystick.y = update.y;
+        if (update.has_button0) joystick.button0 = update.button0;
+        if (update.has_button1) joystick.button1 = update.button1;
+        *state = fake_input_state;
+        return true;
+    }
+    bool GetInputState(InputState* state, std::string*) const override
+    {
+        if (state == NULL)
+            return false;
+        *state = fake_input_state;
+        return true;
+    }
     AGENT_RUNTIME_UNAVAILABLE(Step, bool Step(StepMode, bool*, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(ReadMemory, bool ReadMemory(const MemoryAddress&, std::size_t, std::vector<std::uint8_t>*, MemoryAccessError*, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(WriteMemory, bool WriteMemory(const MemoryAddress&, const std::vector<std::uint8_t>&, std::vector<std::uint8_t>*, MemoryAccessError*, std::string* error) const)
@@ -1040,6 +1170,7 @@ private:
     mutable std::atomic<std::uintptr_t> armed_fake_breakpoint{0};
     mutable std::atomic<std::uintptr_t> hit_fake_breakpoint{0};
     mutable std::string fake_checkpoint_state{"fake-state"};
+    mutable InputState fake_input_state;
 
     static void SetUnavailable(std::string* error)
     {
@@ -1586,6 +1717,38 @@ static JsonValue RegistersResult(const RegisterSnapshot& registers,
     return result;
 }
 
+static JsonValue InputStateResult(const InputState& input,
+                                  const AgentServer::Impl::Session& session)
+{
+    JsonValue result = SessionResult(session);
+    JsonValue keyboard = Object();
+    JsonValue pressed = JsonValue::Array();
+    for (std::vector<KeyboardKey>::const_iterator key = input.pressed_keys.begin();
+         key != input.pressed_keys.end(); ++key)
+        pressed.array.push_back(String(KeyboardKeyName(*key)));
+    Add(&keyboard, "pressed", pressed);
+    Add(&result, "keyboard", keyboard);
+
+    JsonValue joysticks = JsonValue::Array();
+    for (std::size_t index = 0; index < 2; ++index) {
+        const JoystickInputState& state = input.joysticks[index];
+        JsonValue joystick = Object();
+        Add(&joystick, "index", Number(index));
+        Add(&joystick, "enabled", JsonValue::Bool(state.enabled));
+        JsonValue axes = Object();
+        Add(&axes, "x", SignedNumber(state.x));
+        Add(&axes, "y", SignedNumber(state.y));
+        Add(&joystick, "axes", axes);
+        JsonValue buttons = JsonValue::Array();
+        buttons.array.push_back(JsonValue::Bool(state.button0));
+        buttons.array.push_back(JsonValue::Bool(state.button1));
+        Add(&joystick, "buttons", buttons);
+        joysticks.array.push_back(joystick);
+    }
+    Add(&result, "joysticks", joysticks);
+    return result;
+}
+
 static JsonValue BinarySnapshotBlockMetadata(const std::vector<std::uint8_t>& data)
 {
     JsonValue block = Object();
@@ -1878,6 +2041,21 @@ static std::string Capabilities(const AgentConfig& config)
 #endif
     Add(&execution, "run_until_predicate_kinds", predicate_kinds);
     Add(&result, "execution", execution);
+    JsonValue input = Object();
+    Add(&input, "device_keyboard", JsonValue::Bool(true));
+    Add(&input, "ordered_keyboard_batch", JsonValue::Bool(true));
+    Add(&input, "keyboard_state", JsonValue::Bool(true));
+    JsonValue keys = JsonValue::Array();
+    for (std::size_t index = 0;
+         index < sizeof(kKeyboardKeyNames) / sizeof(kKeyboardKeyNames[0]); ++index)
+        keys.array.push_back(String(kKeyboardKeyNames[index]));
+    Add(&input, "keyboard_keys", keys);
+    Add(&input, "joystick", JsonValue::Bool(true));
+    Add(&input, "joystick_count", Number(2));
+    Add(&input, "joystick_axis_min", SignedNumber(-32768));
+    Add(&input, "joystick_axis_max", SignedNumber(32767));
+    Add(&input, "joystick_buttons", Number(2));
+    Add(&result, "input", input);
     JsonValue video = Object();
     Add(&video, "snapshot", JsonValue::Bool(true));
     Add(&video, "atomic_components", JsonValue::Bool(true));
@@ -2699,6 +2877,223 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                     Add(&result, "state", String(StateName(operation->second.terminal_state)));
                     Add(&result, "stop_reason", StopReason(*session));
                     response = AGENT_MakeJsonRpcResult(parsed.id, result);
+                }
+            }
+        }
+    } else if (parsed.method == "input.keyboard") {
+        const JsonValue* events_value = parsed.params.Find("events");
+        std::vector<KeyboardInputEvent> events;
+        bool valid = events_value != NULL && events_value->type == JsonType::Array &&
+                     !events_value->array.empty() && events_value->array.size() <= 32u;
+        if (valid) {
+            events.reserve(events_value->array.size());
+            for (std::vector<JsonValue>::const_iterator item = events_value->array.begin();
+                 item != events_value->array.end(); ++item) {
+                std::string name;
+                bool pressed = false;
+                KeyboardKey key = KeyboardKey::Escape;
+                if (item->type != JsonType::Object ||
+                    !GetString(*item, "key", &name) ||
+                    !GetBool(*item, "pressed", &pressed) ||
+                    !ParseKeyboardKey(name, &key)) {
+                    valid = false;
+                    break;
+                }
+                KeyboardInputEvent event;
+                event.key = key;
+                event.pressed = pressed;
+                events.push_back(event);
+            }
+        }
+        if (!valid) {
+            response = InvalidParams(parsed.id,
+                    "input.keyboard requires 1..32 {key,pressed} events using an advertised key name");
+        } else if (session->state == Impl::SessionState::Exited) {
+            response = SessionError(parsed.id, kErrorCapabilityUnavailable,
+                                    "Target has exited", "TARGET_EXITED", session);
+        } else if (session->state != Impl::SessionState::Stopped &&
+                   session->state != Impl::SessionState::Running) {
+            response = SessionError(parsed.id, kErrorCapabilityUnavailable,
+                                    "Target is not ready for input", "TARGET_NOT_STOPPED", session);
+        } else {
+            const std::shared_ptr<Impl::AdapterOperation> operation(new Impl::AdapterOperation());
+            const std::string session_id = session->id;
+            if (SubmitEmulationCommandLocked(impl, [impl, operation, events](const std::uint64_t) {
+                    AgentRuntime& adapter = *impl->runtime;
+                    std::string adapter_error;
+                    InputState state;
+                    const bool success = adapter.ApplyKeyboardInput(events, &state, &adapter_error);
+                    {
+                        std::lock_guard<std::mutex> operation_lock(operation->mutex);
+                        operation->success = success;
+                        operation->error = adapter_error;
+                        operation->input_state = state;
+                        operation->done = true;
+                    }
+                    operation->completed.notify_all();
+                }) == 0) {
+                response = Error(parsed.id, kErrorCapabilityUnavailable,
+                                 "Emulation-thread bridge is unavailable", "COMMAND_REJECTED");
+            } else {
+                std::unique_lock<std::mutex> operation_lock(operation->mutex);
+                lock.unlock();
+                const bool completed = operation->completed.wait_for(operation_lock,
+                        std::chrono::milliseconds(impl->config.request_timeout_ms),
+                        [operation]() { return operation->done; });
+                lock.lock();
+                if (!RebindSessionAfterWait(impl, session_id, &session, &response, parsed.id))
+                    return response;
+                if (!completed) {
+                    response = Error(parsed.id, kErrorOperationTimeout,
+                                     "Timed out waiting for input.keyboard on the emulation thread",
+                                     "OPERATION_TIMEOUT");
+                } else if (!operation->success) {
+                    response = Error(parsed.id, kErrorCommandRejected,
+                                     operation->error.empty() ? "Unable to deliver keyboard input" : operation->error,
+                                     "COMMAND_REJECTED");
+                } else {
+                    ++session->state_revision;
+                    response = AGENT_MakeJsonRpcResult(
+                            parsed.id, InputStateResult(operation->input_state, *session));
+                }
+            }
+        }
+    } else if (parsed.method == "input.joystick") {
+        const JsonValue* index_value = parsed.params.Find("index");
+        std::uint32_t index = 0;
+        JoystickInputUpdate update;
+        bool valid = index_value != NULL && GetUnsignedInteger(*index_value, &index) && index < 2;
+        update.index = static_cast<std::uint8_t>(index);
+        const JsonValue* enabled = parsed.params.Find("enabled");
+        const JsonValue* x = parsed.params.Find("x");
+        const JsonValue* y = parsed.params.Find("y");
+        const JsonValue* button0 = parsed.params.Find("button0");
+        const JsonValue* button1 = parsed.params.Find("button1");
+        if (enabled != NULL) {
+            update.has_enabled = enabled->type == JsonType::Bool;
+            update.enabled = enabled->boolean;
+            valid = valid && update.has_enabled;
+        }
+        if (x != NULL) {
+            update.has_x = GetSignedInteger(*x, &update.x) && update.x >= -32768 && update.x <= 32767;
+            valid = valid && update.has_x;
+        }
+        if (y != NULL) {
+            update.has_y = GetSignedInteger(*y, &update.y) && update.y >= -32768 && update.y <= 32767;
+            valid = valid && update.has_y;
+        }
+        if (button0 != NULL) {
+            update.has_button0 = button0->type == JsonType::Bool;
+            update.button0 = button0->boolean;
+            valid = valid && update.has_button0;
+        }
+        if (button1 != NULL) {
+            update.has_button1 = button1->type == JsonType::Bool;
+            update.button1 = button1->boolean;
+            valid = valid && update.has_button1;
+        }
+        valid = valid && (update.has_enabled || update.has_x || update.has_y ||
+                          update.has_button0 || update.has_button1);
+        if (!valid) {
+            response = InvalidParams(parsed.id,
+                    "input.joystick requires index 0|1 and at least one valid enabled, x, y, button0 or button1 field");
+        } else if (session->state == Impl::SessionState::Exited) {
+            response = SessionError(parsed.id, kErrorCapabilityUnavailable,
+                                    "Target has exited", "TARGET_EXITED", session);
+        } else if (session->state != Impl::SessionState::Stopped &&
+                   session->state != Impl::SessionState::Running) {
+            response = SessionError(parsed.id, kErrorCapabilityUnavailable,
+                                    "Target is not ready for input", "TARGET_NOT_STOPPED", session);
+        } else {
+            const std::shared_ptr<Impl::AdapterOperation> operation(new Impl::AdapterOperation());
+            const std::string session_id = session->id;
+            if (SubmitEmulationCommandLocked(impl, [impl, operation, update](const std::uint64_t) {
+                    AgentRuntime& adapter = *impl->runtime;
+                    std::string adapter_error;
+                    InputState state;
+                    const bool success = adapter.ApplyJoystickInput(update, &state, &adapter_error);
+                    {
+                        std::lock_guard<std::mutex> operation_lock(operation->mutex);
+                        operation->success = success;
+                        operation->error = adapter_error;
+                        operation->input_state = state;
+                        operation->done = true;
+                    }
+                    operation->completed.notify_all();
+                }) == 0) {
+                response = Error(parsed.id, kErrorCapabilityUnavailable,
+                                 "Emulation-thread bridge is unavailable", "COMMAND_REJECTED");
+            } else {
+                std::unique_lock<std::mutex> operation_lock(operation->mutex);
+                lock.unlock();
+                const bool completed = operation->completed.wait_for(operation_lock,
+                        std::chrono::milliseconds(impl->config.request_timeout_ms),
+                        [operation]() { return operation->done; });
+                lock.lock();
+                if (!RebindSessionAfterWait(impl, session_id, &session, &response, parsed.id))
+                    return response;
+                if (!completed) {
+                    response = Error(parsed.id, kErrorOperationTimeout,
+                                     "Timed out waiting for input.joystick on the emulation thread",
+                                     "OPERATION_TIMEOUT");
+                } else if (!operation->success) {
+                    response = Error(parsed.id, kErrorCommandRejected,
+                                     operation->error.empty() ? "Unable to update joystick input" : operation->error,
+                                     "COMMAND_REJECTED");
+                } else {
+                    ++session->state_revision;
+                    response = AGENT_MakeJsonRpcResult(
+                            parsed.id, InputStateResult(operation->input_state, *session));
+                }
+            }
+        }
+    } else if (parsed.method == "input.state") {
+        if (session->state == Impl::SessionState::Exited) {
+            response = SessionError(parsed.id, kErrorCapabilityUnavailable,
+                                    "Target has exited", "TARGET_EXITED", session);
+        } else if (session->state != Impl::SessionState::Stopped &&
+                   session->state != Impl::SessionState::Running) {
+            response = SessionError(parsed.id, kErrorCapabilityUnavailable,
+                                    "Target is not ready for input inspection", "TARGET_NOT_STOPPED", session);
+        } else {
+            const std::shared_ptr<Impl::AdapterOperation> operation(new Impl::AdapterOperation());
+            const std::string session_id = session->id;
+            if (SubmitEmulationCommandLocked(impl, [impl, operation](const std::uint64_t) {
+                    AgentRuntime& adapter = *impl->runtime;
+                    std::string adapter_error;
+                    InputState state;
+                    const bool success = adapter.GetInputState(&state, &adapter_error);
+                    {
+                        std::lock_guard<std::mutex> operation_lock(operation->mutex);
+                        operation->success = success;
+                        operation->error = adapter_error;
+                        operation->input_state = state;
+                        operation->done = true;
+                    }
+                    operation->completed.notify_all();
+                }) == 0) {
+                response = Error(parsed.id, kErrorCapabilityUnavailable,
+                                 "Emulation-thread bridge is unavailable", "COMMAND_REJECTED");
+            } else {
+                std::unique_lock<std::mutex> operation_lock(operation->mutex);
+                lock.unlock();
+                const bool completed = operation->completed.wait_for(operation_lock,
+                        std::chrono::milliseconds(impl->config.request_timeout_ms),
+                        [operation]() { return operation->done; });
+                lock.lock();
+                if (!RebindSessionAfterWait(impl, session_id, &session, &response, parsed.id))
+                    return response;
+                if (!completed) {
+                    response = Error(parsed.id, kErrorOperationTimeout,
+                                     "Timed out waiting for input.state on the emulation thread",
+                                     "OPERATION_TIMEOUT");
+                } else if (!operation->success) {
+                    response = Error(parsed.id, kErrorCommandRejected,
+                                     operation->error.empty() ? "Unable to inspect input state" : operation->error,
+                                     "COMMAND_REJECTED");
+                } else {
+                    response = AGENT_MakeJsonRpcResult(
+                            parsed.id, InputStateResult(operation->input_state, *session));
                 }
             }
         }

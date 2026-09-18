@@ -301,6 +301,69 @@ class RegisterSnapshot:
 
 
 @dataclass(frozen=True)
+class KeyboardEvent:
+    key: str
+    pressed: bool
+
+    def to_rpc(self) -> dict[str, Any]:
+        if not isinstance(self.key, str) or not self.key:
+            raise ValueError("keyboard key must be a non-empty string")
+        if not isinstance(self.pressed, bool):
+            raise ValueError("keyboard pressed must be a boolean")
+        return {"key": self.key, "pressed": self.pressed}
+
+
+@dataclass(frozen=True)
+class JoystickState:
+    index: int
+    enabled: bool
+    x: int
+    y: int
+    buttons: tuple[bool, bool]
+
+    @classmethod
+    def from_rpc(cls, value: Mapping[str, Any]) -> "JoystickState":
+        axes = _mapping(value.get("axes"), "joystick.axes")
+        buttons = value.get("buttons")
+        if not isinstance(buttons, list) or len(buttons) != 2:
+            raise ValueError("joystick.buttons must contain exactly two booleans")
+        return cls(
+            index=_integer(value.get("index"), "joystick.index"),
+            enabled=_boolean(value.get("enabled"), "joystick.enabled"),
+            x=_integer(axes.get("x"), "joystick.axes.x"),
+            y=_integer(axes.get("y"), "joystick.axes.y"),
+            buttons=(_boolean(buttons[0], "joystick.buttons[0]"),
+                     _boolean(buttons[1], "joystick.buttons[1]")),
+        )
+
+
+@dataclass(frozen=True)
+class InputState:
+    pressed_keys: tuple[str, ...]
+    joysticks: tuple[JoystickState, JoystickState]
+    state_revision: int
+
+    @classmethod
+    def from_rpc(cls, value: Mapping[str, Any]) -> "InputState":
+        keyboard = _mapping(value.get("keyboard"), "input.keyboard")
+        pressed = keyboard.get("pressed")
+        joysticks = value.get("joysticks")
+        if not isinstance(pressed, list) or not all(isinstance(key, str) for key in pressed):
+            raise ValueError("input.keyboard.pressed must contain only strings")
+        if not isinstance(joysticks, list) or len(joysticks) != 2:
+            raise ValueError("input.joysticks must contain exactly two states")
+        decoded = tuple(JoystickState.from_rpc(_mapping(item, "joystick"))
+                        for item in joysticks)
+        if tuple(item.index for item in decoded) != (0, 1):
+            raise ValueError("input.joysticks must be ordered by index 0, 1")
+        return cls(
+            pressed_keys=tuple(pressed),
+            joysticks=(decoded[0], decoded[1]),
+            state_revision=_integer(value.get("state_revision"), "input.state_revision"),
+        )
+
+
+@dataclass(frozen=True)
 class MemoryRead:
     address: MemoryAddress
     data: bytes

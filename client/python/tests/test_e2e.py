@@ -15,6 +15,7 @@ from dosbox_agent import (
     AgentClient,
     BreakpointCondition,
     BreakpointHitFilter,
+    KeyboardEvent,
     MemoryAddress,
     RunUntilPredicate,
 )
@@ -215,6 +216,63 @@ def main() -> int:
             )
         if client.stop_trace(session.id) != 6:
             raise AssertionError("effect trace stop did not report six complete instructions")
+        operation = client.stop(session.id)
+        client.wait(session.id, operation.id, 10000)
+
+        session = client.start("AGINPUT.COM")
+        session_id = session.id
+        input_segment = session.stop_reason.address.segment
+        pressed = client.send_keyboard(session.id, [
+            KeyboardEvent("left_shift", True),
+        ])
+        if pressed.pressed_keys != ("left_shift",):
+            raise AssertionError(f"device key-down state mismatch: {pressed}")
+        shift_down = client.run_until(
+            session.id,
+            RunUntilPredicate("memory_write", MemoryAddress.segmented(input_segment, 0x0200)),
+        )
+        down_stop = client.wait(session.id, shift_down.id, 10000).session.stop_reason
+        if (down_stop is None or down_stop.access is None or
+                down_stop.access.after != b"\xD1"):
+            raise AssertionError(f"guest did not observe left Shift make: {down_stop}")
+
+        released = client.send_keyboard(session.id, [
+            KeyboardEvent("left_shift", False),
+        ])
+        if released.pressed_keys:
+            raise AssertionError(f"device key release remained pressed: {released}")
+        shift_up = client.run_until(
+            session.id,
+            RunUntilPredicate("memory_write", MemoryAddress.segmented(input_segment, 0x0201)),
+        )
+        up_stop = client.wait(session.id, shift_up.id, 10000).session.stop_reason
+        if up_stop is None or up_stop.access is None or up_stop.access.after != b"\xD0":
+            raise AssertionError(f"guest did not observe left Shift break: {up_stop}")
+
+        joystick = client.set_joystick(
+            session.id, 0, enabled=True, x=0, y=0,
+            button0=True, button1=False,
+        )
+        if (not joystick.joysticks[0].enabled or
+                joystick.joysticks[0].buttons != (True, False)):
+            raise AssertionError(f"native joystick state mismatch: {joystick}")
+        joystick_sample = client.run_until(
+            session.id,
+            RunUntilPredicate("memory_write", MemoryAddress.segmented(input_segment, 0x0202)),
+        )
+        joystick_stop = client.wait(session.id, joystick_sample.id, 10000).session.stop_reason
+        if joystick_stop is None or joystick_stop.access is None:
+            raise AssertionError(f"guest did not sample joystick port: {joystick_stop}")
+        gameport = joystick_stop.access.after[0]
+        if gameport & 0x10 or not gameport & 0x20:
+            raise AssertionError(
+                f"joystick buttons were not visible at port 0201h: 0x{gameport:02X}"
+            )
+        print(
+            "INPUT evidence: native left-Shift make set BDA 0040:0017 bit 1 and its break "
+            "cleared it; joystick 0 buttons [down,up] produced "
+            f"port 0201h value 0x{gameport:02X}."
+        )
         operation = client.stop(session.id)
         client.wait(session.id, operation.id, 10000)
 

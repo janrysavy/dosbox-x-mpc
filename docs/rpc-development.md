@@ -515,6 +515,31 @@ using the observed helpers. Exact effects are advertised only through
 `trace.memory_io_effects=true` and currently require the normal CPU core, as
 reported by `trace.effects_require_normal_core=true`.
 
+### 8.9 Device input
+
+`input.keyboard` submits one ordered batch of 1 to 32 physical key transitions:
+
+```json
+{"session_id":"ses-1","events":[
+  {"key":"left_ctrl","pressed":true},
+  {"key":"f1","pressed":true},
+  {"key":"f1","pressed":false},
+  {"key":"left_ctrl","pressed":false}
+]}
+```
+
+Key names are enumerated by `agent.capabilities.input.keyboard.keys`. Events go
+through `KEYBOARD_AddKey`, so the guest observes keyboard-controller make and
+break traffic, BIOS flags, chords and DOSBox-X typematic repeat. This is
+separate from directly editing the BIOS ring buffer.
+
+`input.joystick` changes joystick 0 or 1. `enabled`, signed axes `x`/`y`
+(`-32768..32767`), and `button0`/`button1` are independently optional, but at
+least one field must be supplied. `input.state` and both mutation responses
+return the exact currently pressed key names and two joystick records. These
+three methods are valid while the target is stopped or running because input is
+delivered on the emulation thread without reading mutable CPU state.
+
 `DebuggerOutputParser` 的规则：
 
 - parser 输入、输出和失败原因必须可单元测试；测试样本存放在 `tests/agent/fixtures/`。
@@ -544,6 +569,11 @@ with AgentClient.from_config("tests/agent/agent-test.env") as agent:
 - bytes 参数和结果使用 `bytes`；client 负责 base64 编解码。
 - client 对有副作用调用不自动重试；可由调用方以同一 request id 明确重试。
 - 每个 RPC method 至少有一个 client unit test 和一个反序列化/错误映射测试。
+
+The typed input surface is `send_keyboard`, `send_key`, `set_joystick`, and
+`get_input_state`; all return `InputState`. A `KeyboardEvent` names one advertised
+key and its pressed state. `JoystickState` reports the exact enabled, axis, and
+two-button state returned by the emulator.
 
 ## 10. 测试夹具
 
@@ -624,6 +654,7 @@ read value is the value placed in AL at the complete-instruction boundary.
 - [x] `RPC-C14` - semantic software-interrupt breakpoints; `AGINT.COM` first calls DOS version service, then asks DOS to terminate with `INT 21h`, AX=`4C07h`. A one-shot `INT 21h/AH=4Ch` selector ignores the earlier call, stops before the termination handler with actual AL=`07h`, disappears from the list, and continuation produces `program_exit` code 7. Evidence: 2026-09-18, three independent named-pipe E2E runs produced that exact event and exit; 73 GoogleTests passed.
 - [x] `RPC-C15` - atomic run-until predicates; one RPC installs one private native predicate and resumes in the same emulation-thread callback. The matching stop is `kind=run_until`, carries the returned `until-*` id and hit count, and the predicate is removed on either its hit or a competing stop. Evidence: 2026-09-18, 75 GoogleTests passed; three fresh named-pipe E2E runs each reached `AGENTFIX.COM` `CS:0109` with `predicate=until-1`, `hit_count=1`, and no user-visible temporary breakpoint. The Turbo Pascal probe transcript `re/harness/traces/agent-run-until/session.txt` atomically caught its write at `08AB:0028`, linear `B8144`, old `3E`, new `20`, post-IP `002B`, with zero missing measurements.
 - [x] `RPC-C16` - in-memory checkpoint/restore; the server captures every registered DOSBox-X save-state component on the emulation thread, returns stable identity/size/hash metadata, restores registers and memory after mutation, invalidates cached responses and snapshots, and deletes retained state. Evidence: 2026-09-18, 76 GoogleTests and 12 Python client tests passed; three independent clean E2E runs mutated fixture memory and stepped, then restored IP `0109` plus the original four data bytes. The live Pyro II entry-menu run at `re/harness/traces/pyro-checkpoint/session.txt` consumed Down, observed changed text/frame/CRTC hashes, restored BIOS tick 13929 and the original CPU/menu state, and matched text VRAM, both font pages, DAC, renderer palette, 512,000-byte source frame and CRTC byte-for-byte. That test first exposed a cleared post-restore renderer cache; rebuilding the text frame from restored VGA state fixed it without executing a guest instruction.
+- [x] `RPC-C17` - authentic device input; ordered keyboard make/break batches use DOSBox-X's native keyboard device, joystick updates use native gameport state, and exact pressed/button state is queryable while stopped or running. Evidence: 2026-09-18, 77 GoogleTests and 13 Python client tests passed. A fresh named-pipe E2E made and broke left Shift, observed BDA `0040:0017` bit 1 set then cleared by the guest BIOS, and read joystick buttons `[down,up]` from port `0201h` as `EF`.
 
 ### 阶段 D：输出、trace 和兼容命令
 
@@ -635,7 +666,7 @@ read value is the value placed in AL at the complete-instruction boundary.
 
 ### 阶段 E：Client 和端到端
 
-- [x] `RPC-E01` - Python client unit tests; run `python -m unittest discover -s client\python\tests -t client\python -v`. Evidence: 2026-09-18, all 12 tests passed, including typed checkpoint lifecycle and error mapping, atomic run-until predicates, interrupt selectors/events, exact-watchpoint evidence, structured breakpoint policies, binary-length validation and malformed base64 rejection.
+- [x] `RPC-E01` - Python client unit tests; run `python -m unittest discover -s client\python\tests -t client\python -v`. Evidence: 2026-09-18, all 13 tests passed, including typed physical keyboard/joystick state, checkpoint lifecycle and error mapping, atomic run-until predicates, interrupt selectors/events, exact-watchpoint evidence, structured breakpoint policies, binary-length validation and malformed base64 rejection.
 - [x] `RPC-E02` - End-to-end fixture; run `python client\python\tests\test_e2e.py --config tests\agent\agent-test.env`. It covers start, execution and semantic interrupt breakpoints, continue, wait, registers, memory access, step, controller stop, natural DOS exit, child-PSP filtering, and continue/stop race ordering. A passing run exits zero.
 - [x] `RPC-E03` - DOSBox-X 既有单元测试未回归；执行 `& '.\bin\x64\Agent Debug SDL2\dosbox-x.exe' -tests`；退出码为 0 且输出 `Unit test completed: success`；证据：2026-09-02，`-tests` 退出码为 0；当前 Windows GUI build 不向调用 PowerShell 转发测试日志，`shell.cpp` 的 `RUN_ALL_TESTS()` 返回值为进程退出状态。
 - [x] `RPC-E04` - 干净运行可重复；执行 `if (Test-Path tests\agent\runtime) { Remove-Item -Recurse -Force tests\agent\runtime }; New-Item -ItemType Directory -Path tests\agent\runtime` 后，连续运行 E02 三次；三次均通过，trace 和输出无跨运行数据；证据：2026-09-18，`tests\agent\verify_client_clean_runs.ps1` created three independent runtime/config directories, deliberately cleared DOS `PATH`, and completed all three runs. Target startup now calls the internal mount implementation synchronously; for command lines over 100 bytes it seeds DOSBox-X's long-command buffer with those exact arguments, so the long per-run path cannot be replaced by stale shell input. Every run also starts output sequence at 1 and trace sequence at 1, 2.

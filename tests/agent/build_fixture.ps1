@@ -8,6 +8,21 @@ $loopFixtureBytes = [byte[]]@(0xEB, 0xFE)
 $conditionFixtureBytes = [byte[]]@(0xB9, 0x05, 0x00, 0x31, 0xC0, 0x40, 0x90, 0xE2, 0xFC, 0xCD, 0x20)
 $semanticInterruptFixtureBytes = [byte[]]@(0xB8, 0x00, 0x30, 0xCD, 0x21, 0xB8, 0x07, 0x4C, 0xCD, 0x21)
 $traceEffectsFixtureBytes = [byte[]]@(0xBE, 0x13, 0x01, 0xC7, 0x04, 0x34, 0x12, 0x8B, 0x04, 0xBA, 0x80, 0x00, 0xEE, 0xEC, 0xB8, 0x00, 0x4C, 0xCD, 0x21, 0x00, 0x00)
+$deviceInputFixtureBytes = [byte[]]@(
+    0xB8, 0x40, 0x00,                         # mov ax,0040h
+    0x8E, 0xC0,                               # mov es,ax
+    0x26, 0xF6, 0x06, 0x17, 0x00, 0x02,       # test byte es:[0017h],02h (left Shift)
+    0x74, 0xF8,                               # jz wait-down
+    0xC6, 0x06, 0x00, 0x02, 0xD1,             # mov byte [0200h],D1h
+    0x26, 0xF6, 0x06, 0x17, 0x00, 0x02,       # test byte es:[0017h],02h
+    0x75, 0xF8,                               # jnz wait-up
+    0xC6, 0x06, 0x01, 0x02, 0xD0,             # mov byte [0201h],D0h
+    0xBA, 0x01, 0x02,                         # mov dx,0201h
+    0xEE,                                     # out dx,al (start joystick timing)
+    0xEC,                                     # in al,dx
+    0xA2, 0x02, 0x02,                         # mov [0202h],al
+    0xEB, 0xFE                                # loop forever
+)
 $stepOverCallFixtureBytes = [byte[]]@(0xE8, 0x05, 0x00, 0xBB, 0x78, 0x56, 0xCD, 0x20, 0xB8, 0x34, 0x12, 0xC3)
 $stepOverInterruptFixtureBytes = [byte[]]@(0xCD, 0x2F, 0xBB, 0x78, 0x56, 0xCD, 0x20)
 $stepOverRepFixtureBytes = [byte[]]@(0xBE, 0x0E, 0x01, 0xBF, 0x10, 0x01, 0xB9, 0x02, 0x00, 0xF3, 0xA4, 0x90, 0xCD, 0x20, 0x41, 0x42, 0x00, 0x00)
@@ -25,6 +40,8 @@ New-Item -ItemType Directory -Force -Path $fixtureDirectory, $RuntimeDirectory |
 [System.IO.File]::WriteAllBytes((Join-Path $RuntimeDirectory 'AGINT.COM'), $semanticInterruptFixtureBytes)
 [System.IO.File]::WriteAllBytes((Join-Path $fixtureDirectory 'agent_trace_effects.com'), $traceEffectsFixtureBytes)
 [System.IO.File]::WriteAllBytes((Join-Path $RuntimeDirectory 'AGFX.COM'), $traceEffectsFixtureBytes)
+[System.IO.File]::WriteAllBytes((Join-Path $fixtureDirectory 'agent_device_input.com'), $deviceInputFixtureBytes)
+[System.IO.File]::WriteAllBytes((Join-Path $RuntimeDirectory 'AGINPUT.COM'), $deviceInputFixtureBytes)
 [System.IO.File]::WriteAllBytes((Join-Path $fixtureDirectory 'agent_step_over_call.com'), $stepOverCallFixtureBytes)
 [System.IO.File]::WriteAllBytes((Join-Path $RuntimeDirectory 'AGCALL.COM'), $stepOverCallFixtureBytes)
 [System.IO.File]::WriteAllBytes((Join-Path $RuntimeDirectory 'AGENTCALL.COM'), $stepOverCallFixtureBytes)

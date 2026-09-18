@@ -17,6 +17,7 @@
  */
 
 #include <assert.h>
+#include <algorithm>
 
 #include "dosbox.h"
 #include "keyboard.h"
@@ -151,6 +152,7 @@ static struct {
     bool rightctrl_pressed;
     bool leftshift_pressed;
     bool rightshift_pressed;
+    bool key_pressed[KBD_LAST];
 } keyb;
 
 void PCjr_stuff_scancode(const unsigned char c) {
@@ -1907,6 +1909,9 @@ static void KEYBOARD_TickHandler(void) {
 void APM_Suspend_Wakeup_Key(void);
 
 void KEYBOARD_AddKey(KBD_KEYS keytype,bool pressed) {
+    if (keytype > KBD_NONE && keytype < KBD_LAST)
+        keyb.key_pressed[keytype] = pressed;
+
     /* If the BIOS has put the system into APM suspend, let certain keys wake it up again.
      * Send on RELEASE so that the key isn't also typed into the guest OS. */
     if (!pressed && (keytype == KBD_space))
@@ -1930,6 +1935,10 @@ void KEYBOARD_AddKey(KBD_KEYS keytype,bool pressed) {
             case 3: KEYBOARD_AddKey3(keytype,pressed); break;
         }
     }
+}
+
+bool KEYBOARD_IsKeyPressed(const KBD_KEYS keytype) {
+    return keytype > KBD_NONE && keytype < KBD_LAST && keyb.key_pressed[keytype];
 }
     
 static void KEYBOARD_ShutDown(Section * sec) {
@@ -2945,6 +2954,7 @@ void KEYBOARD_Reset() {
     keyb.rightctrl_pressed=false;
     keyb.leftshift_pressed=false;
     keyb.rightshift_pressed=false;
+    std::fill(keyb.key_pressed, keyb.key_pressed + KBD_LAST, false);
     keyb.scanset=1;
     /* command byte */
     keyb.cb_override_inhibit=false;
@@ -2982,6 +2992,7 @@ public:
         registerPOD(keyb.active); 
         registerPOD(keyb.scanning); 
         registerPOD(keyb.scheduled);
+        registerPOD(keyb.key_pressed);
         registerPOD(port_61_data);
     }
 } dummy;

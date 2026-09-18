@@ -24,6 +24,8 @@ from .models import (
     DosMemoryMap,
     DosProgramLoad,
     InterruptBreakpoint,
+    InputState,
+    KeyboardEvent,
     MemoryAddress,
     MemoryRead,
     MemoryWrite,
@@ -314,6 +316,51 @@ class AgentClient:
 
     def get_registers(self, session_id: str, request_id: str | None = None) -> RegisterSnapshot:
         return _registers(self.call("state.get_registers", {"session_id": session_id}, request_id))
+
+    def send_keyboard(self, session_id: str, events: list[KeyboardEvent] | tuple[KeyboardEvent, ...],
+                      request_id: str | None = None) -> InputState:
+        if not isinstance(events, (list, tuple)) or not 1 <= len(events) <= 32:
+            raise ValueError("events must contain between 1 and 32 KeyboardEvent values")
+        if not all(isinstance(event, KeyboardEvent) for event in events):
+            raise TypeError("events must contain only KeyboardEvent values")
+        result = self.call("input.keyboard", {
+            "session_id": session_id,
+            "events": [event.to_rpc() for event in events],
+        }, request_id)
+        return InputState.from_rpc(result)
+
+    def send_key(self, session_id: str, key: str, pressed: bool,
+                 request_id: str | None = None) -> InputState:
+        return self.send_keyboard(session_id, [KeyboardEvent(key, pressed)], request_id)
+
+    def set_joystick(self, session_id: str, index: int, *, enabled: bool | None = None,
+                     x: int | None = None, y: int | None = None,
+                     button0: bool | None = None, button1: bool | None = None,
+                     request_id: str | None = None) -> InputState:
+        if not isinstance(index, int) or isinstance(index, bool) or index not in (0, 1):
+            raise ValueError("joystick index must be 0 or 1")
+        updates = {"enabled": enabled, "x": x, "y": y,
+                   "button0": button0, "button1": button1}
+        if all(value is None for value in updates.values()):
+            raise ValueError("at least one joystick field must be updated")
+        for name in ("enabled", "button0", "button1"):
+            value = updates[name]
+            if value is not None and not isinstance(value, bool):
+                raise TypeError(f"{name} must be a boolean")
+        for name in ("x", "y"):
+            value = updates[name]
+            if value is not None and (not isinstance(value, int) or isinstance(value, bool) or
+                                      value < -32768 or value > 32767):
+                raise ValueError(f"{name} must be an integer from -32768 through 32767")
+        params: dict[str, Any] = {"session_id": session_id, "index": index}
+        params.update({name: value for name, value in updates.items() if value is not None})
+        return InputState.from_rpc(self.call("input.joystick", params, request_id))
+
+    def get_input_state(self, session_id: str,
+                        request_id: str | None = None) -> InputState:
+        return InputState.from_rpc(self.call("input.state", {
+            "session_id": session_id,
+        }, request_id))
 
     def get_dos_memory_map(self, session_id: str, request_id: str | None = None) -> DosMemoryMap:
         result = self.call("dos.memory_map", {"session_id": session_id}, request_id)

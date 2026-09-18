@@ -50,6 +50,59 @@ struct RegisterSnapshot {
     std::string cpu_mode;
 };
 
+enum class KeyboardKey {
+    Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7, Digit8, Digit9, Digit0,
+    Q, W, E, R, T, Y, U, I, O, P,
+    A, S, D, F, G, H, J, K, L,
+    Z, X, C, V, B, N, M,
+    F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
+    Escape, Tab, Backspace, Enter, Space,
+    LeftAlt, RightAlt, LeftCtrl, RightCtrl, LeftShift, RightShift,
+    CapsLock, ScrollLock, NumLock,
+    Grave, Minus, Equals, Backslash, LeftBracket, RightBracket,
+    Semicolon, Quote, Period, Comma, Slash,
+    PrintScreen, Pause,
+    Insert, Home, PageUp, Delete, End, PageDown,
+    Left, Up, Down, Right,
+    Keypad1, Keypad2, Keypad3, Keypad4, Keypad5,
+    Keypad6, Keypad7, Keypad8, Keypad9, Keypad0,
+    KeypadDivide, KeypadMultiply, KeypadMinus, KeypadPlus,
+    KeypadEnter, KeypadPeriod,
+    Last
+};
+
+struct KeyboardInputEvent {
+    KeyboardKey key = KeyboardKey::Escape;
+    bool pressed = false;
+};
+
+struct JoystickInputState {
+    bool enabled = false;
+    std::int32_t x = 0;
+    std::int32_t y = 0;
+    bool button0 = false;
+    bool button1 = false;
+};
+
+struct InputState {
+    std::vector<KeyboardKey> pressed_keys;
+    JoystickInputState joysticks[2];
+};
+
+struct JoystickInputUpdate {
+    std::uint8_t index = 0;
+    bool has_enabled = false;
+    bool enabled = false;
+    bool has_x = false;
+    std::int32_t x = 0;
+    bool has_y = false;
+    std::int32_t y = 0;
+    bool has_button0 = false;
+    bool button0 = false;
+    bool has_button1 = false;
+    bool button1 = false;
+};
+
 enum class TraceEffectKind {
     MemoryRead,
     MemoryWrite,
@@ -210,6 +263,13 @@ public:
                             const std::string& workdir,
                             std::string* error) const;
     bool GetRegisters(RegisterSnapshot* registers, std::string* error) const;
+    bool ApplyKeyboardInput(const std::vector<KeyboardInputEvent>& events,
+                            InputState* state,
+                            std::string* error) const;
+    bool ApplyJoystickInput(const JoystickInputUpdate& update,
+                            InputState* state,
+                            std::string* error) const;
+    bool GetInputState(InputState* state, std::string* error) const;
     bool CaptureVideoSnapshot(VideoSnapshot* snapshot, std::string* error) const;
     bool Step(StepMode mode, bool* continued, std::string* error) const;
     bool ReadMemory(const MemoryAddress& address,
