@@ -627,7 +627,10 @@ static bool IsKnownMethod(const std::string& method)
            method == "debugger.execute_command" ||
            method == "trace.start" ||
            method == "trace.read" ||
-           method == "trace.stop";
+           method == "trace.stop" ||
+           method == "hardware.trace.start" ||
+           method == "hardware.trace.read" ||
+           method == "hardware.trace.stop";
 }
 
 } // namespace
@@ -697,6 +700,8 @@ public:
         std::vector<TraceSample> trace_samples;
         bool trace_active = false;
         std::size_t trace_event_count = 0;
+        HardwareTracePage hardware_trace_page;
+        bool cursor_expired = false;
     };
 
     struct StepOperation {
@@ -778,6 +783,7 @@ public:
         std::map<std::string, Checkpoint> checkpoints;
         std::deque<OutputRecord> output;
         TraceStore trace;
+        bool hardware_trace_active = false;
         std::string video_snapshot_id;
         std::shared_ptr<VideoSnapshot> video_snapshot;
         std::deque<CachedResponse> completed_requests;
@@ -867,6 +873,11 @@ public:
     virtual bool StartTrace(const std::string& detail, std::uint32_t instruction_count, std::string* error) const = 0;
     virtual bool ReadTrace(std::vector<TraceSample>* samples, bool* active, std::string* error) const = 0;
     virtual bool StopTrace(std::size_t* event_count, std::string* error) const = 0;
+    virtual bool StartHardwareTrace(const HardwareTraceConfig& config, std::string* error) const = 0;
+    virtual bool ReadHardwareTrace(bool has_cursor, std::uint64_t cursor, std::size_t limit,
+                                   HardwareTracePage* page, bool* cursor_expired,
+                                   std::string* error) const = 0;
+    virtual bool StopHardwareTrace(HardwareTracePage* status, std::string* error) const = 0;
     virtual bool TerminateTarget(std::string* error) const = 0;
 };
 
@@ -916,6 +927,9 @@ public:
     AGENT_RUNTIME_FORWARD(StartTrace, bool StartTrace(const std::string& detail, std::uint32_t instruction_count, std::string* error) const, (detail, instruction_count, error))
     AGENT_RUNTIME_FORWARD(ReadTrace, bool ReadTrace(std::vector<TraceSample>* samples, bool* active, std::string* error) const, (samples, active, error))
     AGENT_RUNTIME_FORWARD(StopTrace, bool StopTrace(std::size_t* event_count, std::string* error) const, (event_count, error))
+    AGENT_RUNTIME_FORWARD(StartHardwareTrace, bool StartHardwareTrace(const HardwareTraceConfig& config, std::string* error) const, (config, error))
+    AGENT_RUNTIME_FORWARD(ReadHardwareTrace, bool ReadHardwareTrace(bool has_cursor, std::uint64_t cursor, std::size_t limit, HardwareTracePage* page, bool* cursor_expired, std::string* error) const, (has_cursor, cursor, limit, page, cursor_expired, error))
+    AGENT_RUNTIME_FORWARD(StopHardwareTrace, bool StopHardwareTrace(HardwareTracePage* status, std::string* error) const, (status, error))
     AGENT_RUNTIME_FORWARD(TerminateTarget, bool TerminateTarget(std::string* error) const, (error))
 #undef AGENT_RUNTIME_FORWARD
 };
@@ -1163,6 +1177,34 @@ public:
     AGENT_RUNTIME_UNAVAILABLE(StartTrace, bool StartTrace(const std::string&, std::uint32_t, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(ReadTrace, bool ReadTrace(std::vector<TraceSample>*, bool*, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(StopTrace, bool StopTrace(std::size_t*, std::string* error) const)
+    bool StartHardwareTrace(const HardwareTraceConfig& config, std::string*) const override
+    {
+        if (fake_hardware_trace_active || config.capacity == 0)
+            return false;
+        fake_hardware_trace_active = true;
+        fake_hardware_trace_capacity = config.capacity;
+        return true;
+    }
+    bool ReadHardwareTrace(bool, std::uint64_t, std::size_t,
+                           HardwareTracePage* page, bool* cursor_expired,
+                           std::string*) const override
+    {
+        if (page == NULL || cursor_expired == NULL || fake_hardware_trace_capacity == 0)
+            return false;
+        *page = HardwareTracePage();
+        page->active = fake_hardware_trace_active;
+        page->capacity = fake_hardware_trace_capacity;
+        page->first_available_sequence = 1;
+        *cursor_expired = false;
+        return true;
+    }
+    bool StopHardwareTrace(HardwareTracePage* page, std::string*) const override
+    {
+        if (page == NULL || !fake_hardware_trace_active)
+            return false;
+        fake_hardware_trace_active = false;
+        return ReadHardwareTrace(false, 0, 1, page, &fake_cursor_expired, NULL);
+    }
 #undef AGENT_RUNTIME_UNAVAILABLE
 
 private:
@@ -1171,6 +1213,9 @@ private:
     mutable std::atomic<std::uintptr_t> hit_fake_breakpoint{0};
     mutable std::string fake_checkpoint_state{"fake-state"};
     mutable InputState fake_input_state;
+    mutable bool fake_hardware_trace_active = false;
+    mutable std::size_t fake_hardware_trace_capacity = 0;
+    mutable bool fake_cursor_expired = false;
 
     static void SetUnavailable(std::string* error)
     {
@@ -1706,6 +1751,58 @@ static JsonValue TraceEventResult(const TraceEvent& event, const std::string& de
     return result;
 }
 
+static const char* HardwareTraceKindName(const HardwareTraceEventKind kind)
+{
+    switch (kind) {
+    case HardwareTraceEventKind::IoRead: return "io_read";
+    case HardwareTraceEventKind::IoWrite: return "io_write";
+    case HardwareTraceEventKind::IrqRaise: return "irq_raise";
+    case HardwareTraceEventKind::IrqLower: return "irq_lower";
+    case HardwareTraceEventKind::IrqDispatch: return "irq_dispatch";
+    }
+    return "unknown";
+}
+
+static JsonValue HardwareTraceEventResult(const HardwareTraceEvent& event)
+{
+    JsonValue result = Object();
+    Add(&result, "sequence", Number(event.sequence));
+    Add(&result, "emulated_time_ns", Number(event.emulated_time_ns));
+    Add(&result, "kind", String(HardwareTraceKindName(event.kind)));
+    Add(&result, "address", EncodeMemoryAddress(event.address));
+    if (event.kind == HardwareTraceEventKind::IoRead ||
+        event.kind == HardwareTraceEventKind::IoWrite) {
+        Add(&result, "phase", String("instruction"));
+        Add(&result, "port", String(Hex16(event.port)));
+        Add(&result, "byte_count", Number(event.byte_count));
+        Add(&result, "value", String(Hex32(event.value)));
+    } else {
+        Add(&result, "phase", String(event.kind == HardwareTraceEventKind::IrqDispatch ?
+                                     "before_handler" : "line"));
+        Add(&result, "irq", Number(event.irq));
+        if (event.kind == HardwareTraceEventKind::IrqDispatch)
+            Add(&result, "vector", String(Hex16(event.vector)));
+    }
+    return result;
+}
+
+static JsonValue HardwareTracePageResult(const HardwareTracePage& page)
+{
+    JsonValue result = Object();
+    Add(&result, "active", JsonValue::Bool(page.active));
+    Add(&result, "capacity", Number(page.capacity));
+    Add(&result, "dropped_event_count", Number(page.dropped_event_count));
+    Add(&result, "first_available_sequence", Number(page.first_available_sequence));
+    JsonValue events = JsonValue::Array();
+    for (std::vector<HardwareTraceEvent>::const_iterator it = page.events.begin();
+         it != page.events.end(); ++it)
+        events.array.push_back(HardwareTraceEventResult(*it));
+    Add(&result, "events", events);
+    Add(&result, "next_cursor", page.has_next_cursor ?
+            String(FormatCursor("hardware", page.next_cursor)) : JsonValue::Null());
+    return result;
+}
+
 static JsonValue RegistersResult(const RegisterSnapshot& registers,
                                  const AgentServer::Impl::Session& session)
 {
@@ -2027,6 +2124,14 @@ static std::string Capabilities(const AgentConfig& config)
     Add(&trace, "effects_require_normal_core", JsonValue::Bool(true));
 #endif
     Add(&result, "trace", trace);
+    JsonValue hardware_trace = Object();
+    Add(&hardware_trace, "io", JsonValue::Bool(true));
+    Add(&hardware_trace, "irq", JsonValue::Bool(true));
+    Add(&hardware_trace, "bounded", JsonValue::Bool(true));
+    Add(&hardware_trace, "paged_read", JsonValue::Bool(true));
+    Add(&hardware_trace, "emulated_timestamp_ns", JsonValue::Bool(true));
+    Add(&hardware_trace, "io_address_requires_normal_core", JsonValue::Bool(true));
+    Add(&result, "hardware_trace", hardware_trace);
     JsonValue execution = Object();
     Add(&execution, "run_until", JsonValue::Bool(true));
     Add(&execution, "run_until_atomic", JsonValue::Bool(true));
@@ -3220,7 +3325,7 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
             response = SessionError(parsed.id, kErrorCapabilityUnavailable,
                                     "Target must be stopped before creating a checkpoint",
                                     "TARGET_NOT_STOPPED", session);
-        } else if (session->trace.IsActive()) {
+        } else if (session->trace.IsActive() || session->hardware_trace_active) {
             response = Error(parsed.id, kErrorCapabilityUnavailable,
                              "Stop the active trace before creating a checkpoint",
                              "TRACE_ACTIVE");
@@ -3350,7 +3455,7 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
             response = SessionError(parsed.id, kErrorCapabilityUnavailable,
                                     "Target must be stopped before restoring a checkpoint",
                                     "TARGET_NOT_STOPPED", session);
-        } else if (session->trace.IsActive()) {
+        } else if (session->trace.IsActive() || session->hardware_trace_active) {
             response = Error(parsed.id, kErrorCapabilityUnavailable,
                              "Stop the active trace before restoring a checkpoint",
                              "TRACE_ACTIVE");
@@ -3657,6 +3762,9 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                     }
                     AgentRuntime& adapter = *impl->runtime;
                     std::string adapter_error;
+                    HardwareTracePage hardware_status;
+                    std::string hardware_error;
+                    (void)adapter.StopHardwareTrace(&hardware_status, &hardware_error);
                     const bool success = adapter.TerminateTarget(&adapter_error);
                     std::lock_guard<std::mutex> command_lock(impl->mutex);
                     if (!impl->session || impl->session->id != session_id)
@@ -4434,6 +4542,195 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                 }
             }
         }
+    } else if (parsed.method == "hardware.trace.start") {
+        HardwareTraceConfig hardware_config;
+        std::uint32_t capacity = 0;
+        const JsonValue* capacity_value = parsed.params.Find("capacity");
+        bool valid = capacity_value != NULL &&
+                     GetUnsignedInteger(*capacity_value, &capacity) && capacity != 0;
+        const JsonValue* include_io = parsed.params.Find("include_io");
+        const JsonValue* include_irq = parsed.params.Find("include_irq");
+        if (valid && include_io != NULL)
+            valid = GetBool(parsed.params, "include_io", &hardware_config.include_io);
+        if (valid && include_irq != NULL)
+            valid = GetBool(parsed.params, "include_irq", &hardware_config.include_irq);
+        const JsonValue* ports = parsed.params.Find("ports");
+        if (valid && ports != NULL) {
+            valid = ports->type == JsonType::Array;
+            for (std::vector<JsonValue>::const_iterator it = ports->array.begin();
+                 valid && it != ports->array.end(); ++it) {
+                std::uint32_t first = 0, last = 0;
+                valid = it->type == JsonType::Object &&
+                        it->Find("first") != NULL && it->Find("last") != NULL &&
+                        GetUnsignedInteger(*it->Find("first"), &first) &&
+                        GetUnsignedInteger(*it->Find("last"), &last) &&
+                        first <= last && last <= 0xffffu;
+                if (valid) {
+                    HardwarePortRange range;
+                    range.first = static_cast<std::uint16_t>(first);
+                    range.last = static_cast<std::uint16_t>(last);
+                    hardware_config.ports.push_back(range);
+                }
+            }
+        }
+        const JsonValue* irqs = parsed.params.Find("irqs");
+        if (valid && irqs != NULL) {
+            valid = irqs->type == JsonType::Array;
+            for (std::vector<JsonValue>::const_iterator it = irqs->array.begin();
+                 valid && it != irqs->array.end(); ++it) {
+                std::uint32_t irq = 0;
+                valid = GetUnsignedInteger(*it, &irq) && irq <= 15u;
+                if (valid)
+                    hardware_config.irqs.push_back(static_cast<std::uint8_t>(irq));
+            }
+        }
+        hardware_config.capacity = capacity;
+        if (!valid || (!hardware_config.include_io && !hardware_config.include_irq)) {
+            response = InvalidParams(parsed.id,
+                    "hardware.trace.start requires capacity>0, an enabled event class, and valid port/IRQ filters");
+        } else if (capacity > impl->config.max_trace_events) {
+            response = Error(parsed.id, kErrorRequestTooLarge,
+                    "hardware trace capacity exceeds max_trace_events", "REQUEST_TOO_LARGE");
+        } else if (session->state != Impl::SessionState::Stopped &&
+                   session->state != Impl::SessionState::Running) {
+            response = SessionError(parsed.id, kErrorCommandRejected,
+                    "hardware.trace.start requires a live target", "COMMAND_REJECTED", session);
+        } else {
+            const std::shared_ptr<Impl::AdapterOperation> operation(new Impl::AdapterOperation());
+            const std::string session_id = session->id;
+            if (SubmitEmulationCommandLocked(impl, [impl, operation, hardware_config](const std::uint64_t) {
+                    std::string error;
+                    const bool success = impl->runtime->StartHardwareTrace(hardware_config, &error);
+                    std::lock_guard<std::mutex> guard(operation->mutex);
+                    operation->success = success;
+                    operation->error = error;
+                    operation->done = true;
+                    operation->completed.notify_all();
+                }) == 0) {
+                response = Error(parsed.id, kErrorCommandRejected,
+                        "Emulation-thread bridge is unavailable", "COMMAND_REJECTED");
+            } else {
+                std::unique_lock<std::mutex> operation_lock(operation->mutex);
+                lock.unlock();
+                const bool completed = operation->completed.wait_for(operation_lock,
+                        std::chrono::milliseconds(impl->config.request_timeout_ms),
+                        [operation]() { return operation->done; });
+                lock.lock();
+                if (!RebindSessionAfterWait(impl, session_id, &session, &response, parsed.id))
+                    return response;
+                if (!completed)
+                    response = Error(parsed.id, kErrorOperationTimeout,
+                            "Timed out starting hardware trace", "OPERATION_TIMEOUT");
+                else if (!operation->success)
+                    response = Error(parsed.id, kErrorCommandRejected,
+                            operation->error, "COMMAND_REJECTED");
+                else {
+                    session->hardware_trace_active = true;
+                    JsonValue result = SessionResult(*session);
+                    Add(&result, "active", JsonValue::Bool(true));
+                    Add(&result, "capacity", Number(capacity));
+                    response = AGENT_MakeJsonRpcResult(parsed.id, result);
+                }
+            }
+        }
+    } else if (parsed.method == "hardware.trace.read") {
+        bool has_cursor = false;
+        std::uint64_t cursor = 0;
+        std::uint32_t limit = 0;
+        const JsonValue* limit_value = parsed.params.Find("limit");
+        if (!ParseCursor(parsed.params.Find("cursor"), "hardware", &has_cursor, &cursor) ||
+            limit_value == NULL || !GetUnsignedInteger(*limit_value, &limit) || limit == 0 ||
+            limit > impl->config.max_trace_events) {
+            response = InvalidParams(parsed.id,
+                    "hardware.trace.read requires cursor=null|hardware-N and a bounded positive limit");
+        } else {
+            const std::shared_ptr<Impl::AdapterOperation> operation(new Impl::AdapterOperation());
+            const std::string session_id = session->id;
+            if (SubmitEmulationCommandLocked(impl, [impl, operation, has_cursor, cursor, limit](const std::uint64_t) {
+                    std::string error;
+                    HardwareTracePage page;
+                    bool expired = false;
+                    const bool success = impl->runtime->ReadHardwareTrace(
+                            has_cursor, cursor, limit, &page, &expired, &error);
+                    std::lock_guard<std::mutex> guard(operation->mutex);
+                    operation->success = success;
+                    operation->error = error;
+                    operation->hardware_trace_page = page;
+                    operation->cursor_expired = expired;
+                    operation->done = true;
+                    operation->completed.notify_all();
+                }) == 0) {
+                response = Error(parsed.id, kErrorCommandRejected,
+                        "Emulation-thread bridge is unavailable", "COMMAND_REJECTED");
+            } else {
+                std::unique_lock<std::mutex> operation_lock(operation->mutex);
+                lock.unlock();
+                const bool completed = operation->completed.wait_for(operation_lock,
+                        std::chrono::milliseconds(impl->config.request_timeout_ms),
+                        [operation]() { return operation->done; });
+                lock.lock();
+                if (!RebindSessionAfterWait(impl, session_id, &session, &response, parsed.id))
+                    return response;
+                if (!completed)
+                    response = Error(parsed.id, kErrorOperationTimeout,
+                            "Timed out reading hardware trace", "OPERATION_TIMEOUT");
+                else if (operation->cursor_expired)
+                    response = Error(parsed.id, kErrorCursorExpired,
+                            "hardware trace cursor is no longer available", "CURSOR_EXPIRED");
+                else if (!operation->success)
+                    response = Error(parsed.id, kErrorCommandRejected,
+                            operation->error, "COMMAND_REJECTED");
+                else {
+                    JsonValue result = SessionResult(*session);
+                    JsonValue page = HardwareTracePageResult(operation->hardware_trace_page);
+                    for (std::map<std::string, JsonValue>::const_iterator it = page.object.begin();
+                         it != page.object.end(); ++it)
+                        Add(&result, it->first.c_str(), it->second);
+                    response = AGENT_MakeJsonRpcResult(parsed.id, result);
+                }
+            }
+        }
+    } else if (parsed.method == "hardware.trace.stop") {
+        const std::shared_ptr<Impl::AdapterOperation> operation(new Impl::AdapterOperation());
+        const std::string session_id = session->id;
+        if (SubmitEmulationCommandLocked(impl, [impl, operation](const std::uint64_t) {
+                std::string error;
+                HardwareTracePage status;
+                const bool success = impl->runtime->StopHardwareTrace(&status, &error);
+                std::lock_guard<std::mutex> guard(operation->mutex);
+                operation->success = success;
+                operation->error = error;
+                operation->hardware_trace_page = status;
+                operation->done = true;
+                operation->completed.notify_all();
+            }) == 0) {
+            response = Error(parsed.id, kErrorCommandRejected,
+                    "Emulation-thread bridge is unavailable", "COMMAND_REJECTED");
+        } else {
+            std::unique_lock<std::mutex> operation_lock(operation->mutex);
+            lock.unlock();
+            const bool completed = operation->completed.wait_for(operation_lock,
+                    std::chrono::milliseconds(impl->config.request_timeout_ms),
+                    [operation]() { return operation->done; });
+            lock.lock();
+            if (!RebindSessionAfterWait(impl, session_id, &session, &response, parsed.id))
+                return response;
+            if (!completed)
+                response = Error(parsed.id, kErrorOperationTimeout,
+                        "Timed out stopping hardware trace", "OPERATION_TIMEOUT");
+            else if (!operation->success)
+                response = Error(parsed.id, kErrorCommandRejected,
+                        operation->error, "COMMAND_REJECTED");
+            else {
+                session->hardware_trace_active = false;
+                JsonValue result = SessionResult(*session);
+                JsonValue page = HardwareTracePageResult(operation->hardware_trace_page);
+                for (std::map<std::string, JsonValue>::const_iterator it = page.object.begin();
+                     it != page.object.end(); ++it)
+                    Add(&result, it->first.c_str(), it->second);
+                response = AGENT_MakeJsonRpcResult(parsed.id, result);
+            }
+        }
     } else if (parsed.method == "trace.start") {
         std::string detail;
         const JsonValue* instruction_count_value = parsed.params.Find("instruction_count");
@@ -4823,6 +5120,7 @@ void AgentServer::CompleteTargetTerminationOnEmulationThread(const std::shared_p
     active.breakpoints.clear();
     active.state = Impl::SessionState::Exited;
     active.trace.Stop();
+    active.hardware_trace_active = false;
     active.last_stop_kind = "session_stop";
     active.last_stop_message.clear();
     active.last_stop_breakpoint_id.clear();
@@ -4990,6 +5288,12 @@ void AgentServer::OnProgramExited(const std::shared_ptr<Impl>& impl,
         return;
 
     AgentRuntime& adapter = *impl->runtime;
+    if (active.hardware_trace_active) {
+        HardwareTracePage hardware_status;
+        std::string cleanup_error;
+        (void)adapter.StopHardwareTrace(&hardware_status, &cleanup_error);
+        active.hardware_trace_active = false;
+    }
     for (std::map<std::string, Impl::Breakpoint>::const_iterator item = active.breakpoints.begin();
          item != active.breakpoints.end(); ++item) {
         std::string cleanup_error;

@@ -2,6 +2,7 @@
 #include "agent/agent_bridge.h"
 #include "agent/agent_protocol.h"
 #include "agent/agent_server.h"
+#include "agent/hardware_trace.h"
 #include "agent/trace_store.h"
 
 #include <gtest/gtest.h>
@@ -377,6 +378,55 @@ TEST(AgentTrace, PreservesOrderedTypedEffectsThroughPaging)
               page.events[0].sample.effects[1].kind);
     EXPECT_EQ(0x0080, page.events[0].sample.effects[1].port);
     EXPECT_EQ(0x34U, page.events[0].sample.effects[1].value);
+}
+
+TEST(AgentHardwareTrace, BoundsFiltersPagesAndExpiresOverwrittenCursors)
+{
+    dosbox_agent::HardwareTraceConfig config;
+    config.capacity = 2;
+    config.include_io = true;
+    config.include_irq = true;
+    dosbox_agent::HardwarePortRange port;
+    port.first = 0x80;
+    port.last = 0x80;
+    config.ports.push_back(port);
+    config.irqs.push_back(1);
+    ASSERT_TRUE(dosbox_agent::AGENT_HardwareTraceStart(config));
+
+    dosbox_agent::AGENT_HardwareTraceObserveIo(true, 0x81, 1, 0xff, 0x1000, 0x0100);
+    dosbox_agent::AGENT_HardwareTraceObserveIo(true, 0x80, 1, 0x11, 0x1000, 0x0101);
+    dosbox_agent::AGENT_HardwareTraceObserveIrq(dosbox_agent::HardwareTraceEventKind::IrqRaise,
+                                  1, 0, 0x1000, 0x0102);
+    dosbox_agent::AGENT_HardwareTraceObserveIrq(dosbox_agent::HardwareTraceEventKind::IrqDispatch,
+                                  1, 9, 0x1000, 0x0103);
+
+    dosbox_agent::HardwareTracePage page;
+    bool expired = false;
+    ASSERT_TRUE(dosbox_agent::AGENT_HardwareTraceRead(false, 0, 1, &page, &expired));
+    ASSERT_FALSE(expired);
+    ASSERT_EQ(1u, page.dropped_event_count);
+    ASSERT_EQ(2u, page.first_available_sequence);
+    ASSERT_EQ(1u, page.events.size());
+    EXPECT_EQ(2u, page.events[0].sequence);
+    EXPECT_EQ(dosbox_agent::HardwareTraceEventKind::IrqRaise, page.events[0].kind);
+    ASSERT_TRUE(page.has_next_cursor);
+    EXPECT_EQ(2u, page.next_cursor);
+
+    dosbox_agent::HardwareTracePage second;
+    ASSERT_TRUE(dosbox_agent::AGENT_HardwareTraceRead(true, page.next_cursor, 1, &second, &expired));
+    ASSERT_EQ(1u, second.events.size());
+    EXPECT_EQ(3u, second.events[0].sequence);
+    EXPECT_EQ(9u, second.events[0].vector);
+    EXPECT_LE(page.events[0].emulated_time_ns, second.events[0].emulated_time_ns);
+
+    dosbox_agent::HardwareTracePage unavailable;
+    EXPECT_FALSE(dosbox_agent::AGENT_HardwareTraceRead(true, 0, 1, &unavailable, &expired));
+    EXPECT_TRUE(expired);
+
+    dosbox_agent::HardwareTracePage stopped;
+    ASSERT_TRUE(dosbox_agent::AGENT_HardwareTraceStop(&stopped));
+    EXPECT_FALSE(stopped.active);
+    EXPECT_EQ(1u, stopped.dropped_event_count);
 }
 
 TEST(AgentDos, ReturnsLoaderMetadataAndTypedMcbOwnership)

@@ -268,6 +268,31 @@ class AgentClientTests(unittest.TestCase):
                 }], "next_cursor": None}}
             if method == "trace.stop":
                 return {"result": {"session_id": "ses-1", "state_revision": 6, "event_count": 1}}
+            if method == "hardware.trace.start":
+                return {"result": {"session_id": "ses-1", "state_revision": 6,
+                                   "active": True, "capacity": 4}}
+            if method == "hardware.trace.read":
+                return {"result": {"session_id": "ses-1", "state_revision": 6,
+                                   "active": True, "capacity": 4,
+                                   "dropped_event_count": 2,
+                                   "first_available_sequence": 3,
+                                   "events": [{
+                                       "sequence": 3, "emulated_time_ns": 123456,
+                                       "kind": "io_write", "address": address,
+                                       "phase": "instruction", "port": "0x0080",
+                                       "byte_count": 1, "value": "0x00000034",
+                                   }, {
+                                       "sequence": 4, "emulated_time_ns": 123457,
+                                       "kind": "irq_dispatch", "address": address,
+                                       "phase": "before_handler", "irq": 1,
+                                       "vector": "0x0009",
+                                   }], "next_cursor": None}}
+            if method == "hardware.trace.stop":
+                return {"result": {"session_id": "ses-1", "state_revision": 6,
+                                   "active": False, "capacity": 4,
+                                   "dropped_event_count": 2,
+                                   "first_available_sequence": 3,
+                                   "events": [], "next_cursor": None}}
             self.fail(f"unexpected method {method}")
 
         transport = FakeTransport(handler)
@@ -325,9 +350,20 @@ class AgentClientTests(unittest.TestCase):
         self.assertEqual(b"\x00\x00", trace_event.effects[2].before)
         self.assertEqual(b"CB", trace_event.effects[2].after)
         self.assertEqual(1, client.stop_trace(session.id))
+        self.assertTrue(client.start_hardware_trace(
+            session.id, 4, ports=((0x60, 0x64), (0x80, 0x80)), irqs=(1,)
+        ))
+        hardware = client.read_hardware_trace(session.id, None, 4)
+        self.assertEqual(("io_write", "irq_dispatch"), tuple(e.kind for e in hardware.events))
+        self.assertEqual((2, 3), (hardware.dropped_event_count, hardware.first_available_sequence))
+        self.assertEqual(("0x0080", 1, "0x00000034"),
+                         (hardware.events[0].port, hardware.events[0].byte_count,
+                          hardware.events[0].value))
+        self.assertEqual((1, "0x0009"), (hardware.events[1].irq, hardware.events[1].vector))
+        self.assertFalse(client.stop_hardware_trace(session.id).active)
         self.assertEqual("op-1", client.pause(session.id).id)
         self.assertEqual("op-1", client.stop(session.id).id)
-        self.assertEqual(32, len(transport.requests))
+        self.assertEqual(35, len(transport.requests))
         self.assertEqual(str(make_config().dosbox_workdir), transport.requests[1]["params"]["mounts"][0]["host_path"])
 
     def test_run_until_predicates_refuse_ambiguous_shapes(self) -> None:

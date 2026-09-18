@@ -8,6 +8,7 @@ libagent_a_SOURCES = \
 	debugger/debugger_adapter.cpp \
 	parser/debugger_output_parser.cpp \
 	server/agent_server.cpp \
+	trace/hardware_trace.cpp \
 	trace/trace_store.cpp \
 	transport/local_transport.cpp \
 	transport/rpc_transport.h

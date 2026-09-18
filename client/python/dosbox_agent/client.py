@@ -23,6 +23,8 @@ from .models import (
     DosMemoryBlock,
     DosMemoryMap,
     DosProgramLoad,
+    HardwareTraceEvent,
+    HardwareTracePage,
     InterruptBreakpoint,
     InputState,
     KeyboardEvent,
@@ -684,6 +686,85 @@ class AgentClient:
 
     def stop_trace(self, session_id: str, request_id: str | None = None) -> int:
         return _integer(self.call("trace.stop", {"session_id": session_id}, request_id), "event_count")
+
+    def start_hardware_trace(
+        self,
+        session_id: str,
+        capacity: int,
+        *,
+        include_io: bool = True,
+        include_irq: bool = True,
+        ports: tuple[tuple[int, int], ...] = (),
+        irqs: tuple[int, ...] = (),
+        request_id: str | None = None,
+    ) -> bool:
+        if capacity <= 0:
+            raise ValueError("capacity must be positive")
+        if not include_io and not include_irq:
+            raise ValueError("at least one hardware event class must be enabled")
+        if any(first < 0 or last > 0xFFFF or first > last for first, last in ports):
+            raise ValueError("port ranges must be ordered 16-bit values")
+        if any(irq < 0 or irq > 15 for irq in irqs):
+            raise ValueError("IRQs must be in the range 0..15")
+        result = self.call("hardware.trace.start", {
+            "session_id": session_id,
+            "capacity": capacity,
+            "include_io": include_io,
+            "include_irq": include_irq,
+            "ports": [{"first": first, "last": last} for first, last in ports],
+            "irqs": list(irqs),
+        }, request_id)
+        return result.get("active") is True
+
+    def read_hardware_trace(
+        self, session_id: str, cursor: str | None, limit: int,
+        request_id: str | None = None,
+    ) -> HardwareTracePage:
+        if limit <= 0:
+            raise ValueError("limit must be positive")
+        result = self.call("hardware.trace.read", {
+            "session_id": session_id, "cursor": cursor, "limit": limit,
+        }, request_id)
+        raw_events = result.get("events")
+        if not isinstance(raw_events, list) or not isinstance(result.get("active"), bool):
+            raise AgentProtocolError("hardware.trace.read returned an invalid page")
+        events: list[HardwareTraceEvent] = []
+        for value in raw_events:
+            event = _object_value(value, "hardware trace event")
+            events.append(HardwareTraceEvent(
+                sequence=_integer(event, "sequence"),
+                emulated_time_ns=_integer(event, "emulated_time_ns"),
+                kind=_string(event, "kind"),
+                address=MemoryAddress.from_rpc(_object(event, "address")),
+                phase=_string(event, "phase"),
+                port=_optional_string(event.get("port"), "port"),
+                byte_count=_integer(event, "byte_count") if "byte_count" in event else None,
+                value=_optional_string(event.get("value"), "value"),
+                irq=_integer(event, "irq") if "irq" in event else None,
+                vector=_optional_string(event.get("vector"), "vector"),
+            ))
+        return HardwareTracePage(
+            active=result["active"],
+            capacity=_integer(result, "capacity"),
+            dropped_event_count=_integer(result, "dropped_event_count"),
+            first_available_sequence=_integer(result, "first_available_sequence"),
+            events=tuple(events),
+            next_cursor=_optional_string(result.get("next_cursor"), "next_cursor"),
+        )
+
+    def stop_hardware_trace(self, session_id: str,
+                            request_id: str | None = None) -> HardwareTracePage:
+        result = self.call("hardware.trace.stop", {"session_id": session_id}, request_id)
+        raw_events = result.get("events")
+        if raw_events != []:
+            raise AgentProtocolError("hardware.trace.stop returned unexpected events")
+        return HardwareTracePage(
+            active=result.get("active") is True,
+            capacity=_integer(result, "capacity"),
+            dropped_event_count=_integer(result, "dropped_event_count"),
+            first_available_sequence=_integer(result, "first_available_sequence"),
+            events=(), next_cursor=None,
+        )
 
     def _new_request_id(self) -> str:
         request_id = f"client-{self._next_request_id}"

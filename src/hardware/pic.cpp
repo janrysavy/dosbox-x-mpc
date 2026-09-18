@@ -27,6 +27,9 @@
 #include "timer.h"
 #include "setup.h"
 #include "control.h"
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+#include "agent/hardware_trace.h"
+#endif
 
 #if defined(_MSC_VER)
 # pragma warning(disable:4244) /* const fmath::local::uint64_t to double possible loss of data */
@@ -421,8 +424,17 @@ void PIC_ActivateIRQ(Bitu irq) {
 
     Bitu t = irq>7 ? (irq - 8): irq;
     PIC_Controller * pic=&pics[irq>7 ? 1 : 0];
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+    const bool line_was_active = (pic->input & (1u << static_cast<unsigned char>(t))) != 0;
+#endif
 
     pic->raise_irq(t);
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+    if (!line_was_active)
+        dosbox_agent::AGENT_HardwareTraceObserveIrq(
+                dosbox_agent::HardwareTraceEventKind::IrqRaise,
+                static_cast<uint8_t>(irq), 0, SegValue(cs), reg_eip);
+#endif
 }
 
 void PIC_DeActivateIRQ(Bitu irq) {
@@ -443,7 +455,16 @@ void PIC_DeActivateIRQ(Bitu irq) {
 
     Bitu t = irq>7 ? (irq - 8): irq;
     PIC_Controller * pic=&pics[irq>7 ? 1 : 0];
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+    const bool line_was_active = (pic->input & (1u << static_cast<unsigned char>(t))) != 0;
+#endif
     pic->lower_irq(t);
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+    if (line_was_active)
+        dosbox_agent::AGENT_HardwareTraceObserveIrq(
+                dosbox_agent::HardwareTraceEventKind::IrqLower,
+                static_cast<uint8_t>(irq), 0, SegValue(cs), reg_eip);
+#endif
 }
 
 unsigned int PIC_IRQ_hax[16] = { PIC_irq_hack_none };
@@ -530,11 +551,25 @@ static void slave_startIRQ(){
 
     slave.start_irq(pic1_irq);
     master.start_irq(master_cascade_irq);
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+    dosbox_agent::AGENT_HardwareTraceObserveIrq(
+            dosbox_agent::HardwareTraceEventKind::IrqDispatch,
+            static_cast<uint8_t>(pic1_irq + 8),
+            static_cast<uint8_t>(slave.vector_base + pic1_irq),
+            SegValue(cs), reg_eip);
+#endif
     CPU_HW_Interrupt((unsigned int)slave.vector_base + (unsigned int)pic1_irq);
 }
 
 static void inline master_startIRQ(Bitu i){
     master.start_irq(i);
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+    dosbox_agent::AGENT_HardwareTraceObserveIrq(
+            dosbox_agent::HardwareTraceEventKind::IrqDispatch,
+            static_cast<uint8_t>(i),
+            static_cast<uint8_t>(master.vector_base + i),
+            SegValue(cs), reg_eip);
+#endif
     CPU_HW_Interrupt(master.vector_base + i);
 }
 
@@ -1482,4 +1517,3 @@ private:
     }
 } dummy;
 }
-

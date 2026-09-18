@@ -675,6 +675,30 @@ class TracePage:
 
 
 @dataclass(frozen=True)
+class HardwareTraceEvent:
+    sequence: int
+    emulated_time_ns: int
+    kind: str
+    address: MemoryAddress
+    phase: str
+    port: str | None = None
+    byte_count: int | None = None
+    value: str | None = None
+    irq: int | None = None
+    vector: str | None = None
+
+
+@dataclass(frozen=True)
+class HardwareTracePage:
+    active: bool
+    capacity: int
+    dropped_event_count: int
+    first_available_sequence: int
+    events: tuple[HardwareTraceEvent, ...]
+    next_cursor: str | None
+
+
+@dataclass(frozen=True)
 class DiagnosticCommandResult:
     accepted: bool
     raw_output: str

@@ -181,6 +181,10 @@ def main() -> int:
 
         session = client.start("AGFX.COM")
         session_id = session.id
+        if not client.start_hardware_trace(
+            session.id, 1, include_irq=False, ports=((0x80, 0x80),)
+        ):
+            raise AssertionError("hardware I/O trace did not activate")
         if not client.start_trace(session.id, "normal", 6):
             raise AssertionError("effect trace did not activate")
         operation = client.continue_(session.id)
@@ -216,12 +220,32 @@ def main() -> int:
             )
         if client.stop_trace(session.id) != 6:
             raise AssertionError("effect trace stop did not report six complete instructions")
+        hardware_io = client.read_hardware_trace(session.id, None, 4)
+        if (hardware_io.active is not True or hardware_io.capacity != 1 or
+                hardware_io.dropped_event_count != 1 or
+                hardware_io.first_available_sequence != 2 or
+                len(hardware_io.events) != 1 or
+                hardware_io.events[0].kind != "io_read" or
+                hardware_io.events[0].phase != "instruction" or
+                hardware_io.events[0].port != "0x0080" or
+                hardware_io.events[0].address.offset != "0x0000010D"):
+            raise AssertionError(f"bounded hardware I/O trace mismatch: {hardware_io}")
+        if client.stop_hardware_trace(session.id).dropped_event_count != 1:
+            raise AssertionError("hardware I/O trace stop lost overflow accounting")
+        print(
+            "HARDWARE-I/O evidence: capacity=1 retained sequence 2 io_read at "
+            f"{hardware_io.events[0].address.segment}:0x0000010D; dropped=1."
+        )
         operation = client.stop(session.id)
         client.wait(session.id, operation.id, 10000)
 
         session = client.start("AGINPUT.COM")
         session_id = session.id
         input_segment = session.stop_reason.address.segment
+        if not client.start_hardware_trace(
+            session.id, 16, include_io=False, irqs=(1,)
+        ):
+            raise AssertionError("hardware IRQ trace did not activate")
         pressed = client.send_keyboard(session.id, [
             KeyboardEvent("left_shift", True),
         ])
@@ -235,6 +259,20 @@ def main() -> int:
         if (down_stop is None or down_stop.access is None or
                 down_stop.access.after != b"\xD1"):
             raise AssertionError(f"guest did not observe left Shift make: {down_stop}")
+        hardware_irq = client.read_hardware_trace(session.id, None, 16)
+        irq_kinds = tuple(event.kind for event in hardware_irq.events)
+        if ("irq_raise" not in irq_kinds or "irq_dispatch" not in irq_kinds or
+                any(event.irq != 1 for event in hardware_irq.events) or
+                any(hardware_irq.events[index].emulated_time_ns >
+                    hardware_irq.events[index + 1].emulated_time_ns
+                    for index in range(len(hardware_irq.events) - 1)) or
+                next(event for event in hardware_irq.events
+                     if event.kind == "irq_dispatch").vector != "0x0009"):
+            raise AssertionError(f"hardware IRQ lifecycle mismatch: {hardware_irq}")
+        print(
+            "HARDWARE-IRQ evidence: physical Shift produced IRQ1 raise and dispatch "
+            "to vector 0x09 with nondecreasing emulated timestamps."
+        )
 
         released = client.send_keyboard(session.id, [
             KeyboardEvent("left_shift", False),
@@ -248,6 +286,7 @@ def main() -> int:
         up_stop = client.wait(session.id, shift_up.id, 10000).session.stop_reason
         if up_stop is None or up_stop.access is None or up_stop.access.after != b"\xD0":
             raise AssertionError(f"guest did not observe left Shift break: {up_stop}")
+        client.stop_hardware_trace(session.id)
 
         joystick = client.set_joystick(
             session.id, 0, enabled=True, x=0, y=0,

@@ -709,6 +709,29 @@ assert result.session.state == "exited"
 
 ## 13. 相关文件和验收命令
 
+### Hardware event trace
+
+`hardware.trace.start` creates one bounded native ring for a live session. Its
+parameters are `capacity`, `include_io`, `include_irq`, `ports` (inclusive
+`{first,last}` ranges), and `irqs` (0 through 15). Empty filter arrays mean all
+ports or IRQs in the enabled class. The capacity cannot exceed
+`limits.max_trace_events`.
+
+`hardware.trace.read` accepts `cursor=null|hardware-N` and a positive `limit`.
+Each event has a monotonic sequence and `emulated_time_ns`. I/O events include
+the exact instruction address, port, width, value, and `phase=instruction`;
+this address requires the normal CPU core. PIC line transitions include the IRQ
+and `phase=line`. Dispatch includes the interrupted address, IRQ, vector, and
+`phase=before_handler`. Pages always report `dropped_event_count` and
+`first_available_sequence`; reading a cursor overwritten by the ring returns
+`CURSOR_EXPIRED`.
+
+`hardware.trace.stop` freezes the ring without discarding retained events. A
+final `hardware.trace.read` can then page them. Checkpoint capture and restore
+return `TRACE_ACTIVE` while the recorder is active, because a restored clock
+cannot share one unambiguous event timeline. Session termination stops the
+recorder automatically.
+
 - 协议契约：[rpc.md](rpc.md)
 - 开发和验收规范：[rpc-development.md](rpc-development.md)
 - Python client：`client/python/dosbox_agent/`

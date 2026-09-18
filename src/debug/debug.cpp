@@ -35,6 +35,7 @@ using namespace std;
 #include "debug.h"
 #if defined(C_DOSBOX_AGENT)
 #include "agent/agent_bridge.h"
+#include "agent/hardware_trace.h"
 #endif
 #include "cross.h" //snprintf
 #include "fpu.h"
@@ -1592,8 +1593,15 @@ void DEBUG_AgentObserveIoAccess(const bool write,
                                 const uint8_t byte_count,
                                 const uint32_t value)
 {
-	if (!agent_watch_instruction_active || !agent_trace_active ||
-	    agent_trace_events.empty() || byte_count == 0 || byte_count > 4)
+	if (!agent_watch_instruction_active || byte_count == 0 || byte_count > 4)
+		return;
+	dosbox_agent::AGENT_HardwareTraceObserveIo(write,
+	                                           port,
+	                                           byte_count,
+	                                           value,
+	                                           agent_watch_instruction_cs,
+	                                           agent_watch_instruction_ip);
+	if (!agent_trace_active || agent_trace_events.empty())
 		return;
 	DEBUG_AgentTraceEffect effect;
 	effect.kind = write ? DEBUG_AgentTraceEffectKind::IoWrite :

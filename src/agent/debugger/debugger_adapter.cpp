@@ -1,6 +1,7 @@
 #if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
 #include "dosbox.h"
 #include "agent/debugger_adapter.h"
+#include "agent/hardware_trace.h"
 #include "agent/agent_bridge.h"
 
 #if C_DEBUG
@@ -1293,6 +1294,50 @@ bool DebuggerAdapter::IsTraceComplete() const
 #else
     return false;
 #endif
+}
+
+bool DebuggerAdapter::StartHardwareTrace(const HardwareTraceConfig& config,
+                                         std::string* error) const
+{
+    if (!RequireAvailable(error) || !RequireEmulationThread(error))
+        return false;
+    if (!AGENT_HardwareTraceStart(config)) {
+        if (error != NULL)
+            *error = "A hardware trace is already active or its configuration is invalid";
+        return false;
+    }
+    return true;
+}
+
+bool DebuggerAdapter::ReadHardwareTrace(const bool has_cursor,
+                                        const std::uint64_t cursor,
+                                        const std::size_t limit,
+                                        HardwareTracePage* page,
+                                        bool* cursor_expired,
+                                        std::string* error) const
+{
+    if (!RequireAvailable(error) || !RequireEmulationThread(error) ||
+        page == NULL || cursor_expired == NULL)
+        return false;
+    if (!AGENT_HardwareTraceRead(has_cursor, cursor, limit, page, cursor_expired)) {
+        if (!*cursor_expired && error != NULL)
+            *error = "No hardware trace has been started";
+        return false;
+    }
+    return true;
+}
+
+bool DebuggerAdapter::StopHardwareTrace(HardwareTracePage* status,
+                                        std::string* error) const
+{
+    if (!RequireAvailable(error) || !RequireEmulationThread(error) || status == NULL)
+        return false;
+    if (!AGENT_HardwareTraceStop(status)) {
+        if (error != NULL)
+            *error = "No hardware trace is active";
+        return false;
+    }
+    return true;
 }
 
 bool DebuggerAdapter::TerminateTarget(std::string* error) const

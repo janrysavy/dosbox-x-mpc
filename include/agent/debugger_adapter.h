@@ -128,6 +128,49 @@ struct TraceSample {
     std::vector<TraceEffect> effects;
 };
 
+enum class HardwareTraceEventKind {
+    IoRead,
+    IoWrite,
+    IrqRaise,
+    IrqLower,
+    IrqDispatch
+};
+
+struct HardwarePortRange {
+    std::uint16_t first = 0;
+    std::uint16_t last = 0;
+};
+
+struct HardwareTraceConfig {
+    std::size_t capacity = 0;
+    bool include_io = true;
+    bool include_irq = true;
+    std::vector<HardwarePortRange> ports;
+    std::vector<std::uint8_t> irqs;
+};
+
+struct HardwareTraceEvent {
+    std::uint64_t sequence = 0;
+    std::uint64_t emulated_time_ns = 0;
+    HardwareTraceEventKind kind = HardwareTraceEventKind::IoRead;
+    MemoryAddress address;
+    std::uint16_t port = 0;
+    std::uint8_t byte_count = 0;
+    std::uint32_t value = 0;
+    std::uint8_t irq = 0;
+    std::uint8_t vector = 0;
+};
+
+struct HardwareTracePage {
+    bool active = false;
+    std::size_t capacity = 0;
+    std::uint64_t dropped_event_count = 0;
+    std::uint64_t first_available_sequence = 0;
+    std::vector<HardwareTraceEvent> events;
+    bool has_next_cursor = false;
+    std::uint64_t next_cursor = 0;
+};
+
 struct VideoSnapshot {
     std::uint8_t video_mode = 0;
     std::uint64_t ticks = 0;
@@ -310,6 +353,14 @@ public:
     bool ReadTrace(std::vector<TraceSample>* samples, bool* active, std::string* error) const;
     bool StopTrace(std::size_t* event_count, std::string* error) const;
     bool IsTraceComplete() const;
+    bool StartHardwareTrace(const HardwareTraceConfig& config, std::string* error) const;
+    bool ReadHardwareTrace(bool has_cursor,
+                           std::uint64_t cursor,
+                           std::size_t limit,
+                           HardwareTracePage* page,
+                           bool* cursor_expired,
+                           std::string* error) const;
+    bool StopHardwareTrace(HardwareTracePage* status, std::string* error) const;
     bool TerminateTarget(std::string* error) const;
 };
 

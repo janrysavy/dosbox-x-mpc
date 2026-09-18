@@ -1229,6 +1229,7 @@ for /d %%i in ("$(SolutionDir)\..\contrib\translations\*") do copy "%%i\*.lng" "
 	<ClCompile Include="..\src\agent\parser\debugger_output_parser.cpp" />
     <ClCompile Include="..\src\agent\protocol\agent_protocol.cpp" />
     <ClCompile Include="..\src\agent\server\agent_server.cpp" />
+	<ClCompile Include="..\src\agent\trace\hardware_trace.cpp" />
 	<ClCompile Include="..\src\agent\trace\trace_store.cpp" />
     <ClCompile Include="..\src\agent\transport\local_transport.cpp" />
     <ClCompile Include="..\src\debug\debug_disasm.cpp" />
