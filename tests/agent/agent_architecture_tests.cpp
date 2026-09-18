@@ -193,6 +193,10 @@ TEST(AgentProtocol, ReportsBuildCapabilitiesAndLimits)
     EXPECT_NE(std::string::npos, response.find("\"hit_filter\":true"));
     EXPECT_NE(std::string::npos, response.find("\"run_until\":true"));
     EXPECT_NE(std::string::npos, response.find("\"run_until_atomic\":true"));
+    EXPECT_NE(std::string::npos, response.find("\"checkpoints\":{\"create\":true"));
+    EXPECT_NE(std::string::npos, response.find("\"host_files\":false"));
+    EXPECT_NE(std::string::npos, response.find("\"max_checkpoint_bytes\":536870912"));
+    EXPECT_NE(std::string::npos, response.find("\"max_checkpoints\":8"));
 }
 
 TEST(AgentRunUntil, InstallsResumesStopsAndRemovesOnePrivatePredicate)
@@ -229,6 +233,55 @@ TEST(AgentRunUntil, InstallsResumesStopsAndRemovesOnePrivatePredicate)
             "\"params\":{\"session_id\":\"ses-1\"}}");
     EXPECT_NE(std::string::npos, listed.find("\"breakpoints\":[]"));
     EXPECT_EQ(std::string::npos, listed.find("until-1"));
+}
+
+TEST(AgentCheckpoint, CreatesRestoresListsDeletesAndInvalidatesOldResponses)
+{
+    dosbox_agent::AgentServer server;
+    std::string error;
+    ASSERT_TRUE(server.StartForTest(MakeTestConfig(), &error)) << error;
+    StartFixtureSession(&server);
+
+    const std::string status_request =
+            "{\"jsonrpc\":\"2.0\",\"id\":\"revision-status\",\"method\":\"session.status\","
+            "\"params\":{\"session_id\":\"ses-1\"}}";
+    EXPECT_NE(std::string::npos,
+              server.HandleJsonRpc(status_request).find("\"state_revision\":1"));
+
+    const std::string created = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"checkpoint-create\",\"method\":\"checkpoints.create\","
+            "\"params\":{\"session_id\":\"ses-1\",\"label\":\"entry\"}}" );
+    EXPECT_NE(std::string::npos, created.find("\"checkpoint_id\":\"checkpoint-1\""));
+    EXPECT_NE(std::string::npos, created.find("\"label\":\"entry\""));
+    EXPECT_NE(std::string::npos, created.find("\"captured_revision\":1"));
+    EXPECT_NE(std::string::npos, created.find("\"byte_count\":10"));
+    EXPECT_NE(std::string::npos, created.find("\"sha256\":"));
+
+    const std::string listed = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"checkpoint-list\",\"method\":\"checkpoints.list\","
+            "\"params\":{\"session_id\":\"ses-1\"}}" );
+    EXPECT_NE(std::string::npos, listed.find("\"checkpoint_id\":\"checkpoint-1\""));
+    EXPECT_NE(std::string::npos, listed.find("\"retained_bytes\":10"));
+
+    const std::string restored = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"checkpoint-restore\",\"method\":\"checkpoints.restore\","
+            "\"params\":{\"session_id\":\"ses-1\",\"checkpoint_id\":\"checkpoint-1\"}}" );
+    EXPECT_NE(std::string::npos, restored.find("\"kind\":\"checkpoint_restore\""));
+    EXPECT_NE(std::string::npos, restored.find("\"state_revision\":2"));
+    EXPECT_NE(std::string::npos, restored.find("\"segment\":\"0x1000\""));
+    EXPECT_NE(std::string::npos, restored.find("\"instruction_pointer\":\"0x00000100\""));
+
+    const std::string refreshed_status = server.HandleJsonRpc(status_request);
+    EXPECT_NE(std::string::npos, refreshed_status.find("\"state_revision\":2"));
+
+    const std::string deleted = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"checkpoint-delete\",\"method\":\"checkpoints.delete\","
+            "\"params\":{\"session_id\":\"ses-1\",\"checkpoint_id\":\"checkpoint-1\"}}" );
+    EXPECT_NE(std::string::npos, deleted.find("\"deleted\":true"));
+    EXPECT_NE(std::string::npos, server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"checkpoint-missing\",\"method\":\"checkpoints.restore\","
+            "\"params\":{\"session_id\":\"ses-1\",\"checkpoint_id\":\"checkpoint-1\"}}" ).find(
+                    "CHECKPOINT_NOT_FOUND"));
 }
 
 TEST(AgentTrace, PreservesOrderedTypedEffectsThroughPaging)

@@ -6,6 +6,7 @@ from .errors import (
     AgentProtocolError,
     AgentRpcError,
     BreakpointNotFoundError,
+    CheckpointNotFoundError,
     CapabilityUnavailableError,
     CommandRejectedError,
     CursorExpiredError,
@@ -25,6 +26,7 @@ from .models import (
     Breakpoint,
     BreakpointCondition,
     BreakpointHitFilter,
+    Checkpoint,
     DiagnosticCommandResult,
     DosMemoryBlock,
     DosMemoryMap,
@@ -55,6 +57,7 @@ from .models import (
 __all__ = [
     "AddressNotMappedError", "AgentClient", "AgentConfig", "AgentConnectionError", "AgentError",
     "AgentProtocolError", "AgentRpcError", "Breakpoint", "BreakpointCondition", "BreakpointHitFilter", "BreakpointNotFoundError",
+    "Checkpoint", "CheckpointNotFoundError",
     "CapabilityUnavailableError", "CommandRejectedError", "CursorExpiredError", "DiagnosticCommandResult",
     "DosMemoryBlock", "DosMemoryMap", "DosProgramLoad", "InterruptBreakpoint", "InterruptEvent",
     "InvalidBinaryLengthError", "MemoryAddress", "MemoryPreconditionFailedError", "MemoryRead", "MemoryWrite",

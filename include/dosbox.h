@@ -367,6 +367,13 @@ public:
     void removeState(size_t slot) const;
     std::string getName(size_t slot, bool nl=false) const;
 
+    // Agent checkpoints use the same registered serializers as file save
+    // states, but retain every component in memory. They deliberately exclude
+    // save-slot UI, ZIP metadata, and host-file backup/restore side effects.
+    typedef std::map<std::string, std::string> MemoryImage;
+    bool captureMemory(MemoryImage& image, std::string& error);
+    bool restoreMemory(const MemoryImage& image, std::string& error) const;
+
     //initialization: register relevant components on program startup
     struct Component
     {
@@ -500,4 +507,3 @@ int mkdir_p(const char *pathname, mode_t mode);
 
 extern duk_context *js_heap;
 #endif
-

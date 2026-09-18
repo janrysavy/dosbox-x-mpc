@@ -120,6 +120,10 @@ def main() -> int:
         registers = client.get_registers(session.id)
         if registers.instruction_pointer != "0x00000109":
             raise AssertionError(f"unexpected run-until instruction pointer: {registers.instruction_pointer}")
+        checkpoint = client.create_checkpoint(session.id, "before-memory-write")
+        if (checkpoint.byte_count <= 0 or len(checkpoint.sha256) != 64 or
+                client.list_checkpoints(session.id) != (checkpoint,)):
+            raise AssertionError(f"checkpoint metadata mismatch: {checkpoint}")
         print(
             "RUN-UNTIL evidence: one RPC installed and resumed to "
             f"{session.stop_reason.address.segment}:0x00000109; "
@@ -146,6 +150,28 @@ def main() -> int:
         stepped, step_registers = client.step(session.id, "into")
         if stepped.stop_reason is None or stepped.stop_reason.kind != "step" or not step_registers.instruction_pointer:
             raise AssertionError("execution.step did not return a stopped register snapshot")
+
+        restored_checkpoint, restored_session, restored_registers = client.restore_checkpoint(
+            session.id, checkpoint.id
+        )
+        restored_data = client.read_memory(session.id, data_address, 4)
+        if (restored_checkpoint != checkpoint or restored_session.stop_reason is None or
+                restored_session.stop_reason.kind != "checkpoint_restore" or
+                restored_registers.instruction_pointer != "0x00000109" or
+                restored_data.data != before.data):
+            raise AssertionError(
+                "checkpoint did not restore the exact CPU/memory state: "
+                f"checkpoint={restored_checkpoint} session={restored_session} "
+                f"registers={restored_registers} data={restored_data.data.hex()}"
+            )
+        if not client.delete_checkpoint(session.id, checkpoint.id) or client.list_checkpoints(session.id):
+            raise AssertionError("checkpoint delete did not empty the session checkpoint list")
+        print(
+            "CHECKPOINT evidence: "
+            f"{checkpoint.id} retained {checkpoint.byte_count} bytes sha256={checkpoint.sha256}; "
+            "after memory mutation and one step, restore returned IP=0x00000109 and the "
+            f"original {len(before.data)} data bytes; delete left no checkpoints."
+        )
 
         stop = client.stop(session.id)
         exited = client.wait(session.id, stop.id, 10000)

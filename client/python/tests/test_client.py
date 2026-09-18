@@ -18,6 +18,7 @@ from dosbox_agent import (
     BreakpointCondition,
     BreakpointHitFilter,
     BreakpointNotFoundError,
+    CheckpointNotFoundError,
     InterruptBreakpoint,
     InvalidBinaryLengthError,
     MemoryAddress,
@@ -87,6 +88,7 @@ class AgentClientTests(unittest.TestCase):
             "MEMORY_PRECONDITION_FAILED": MemoryPreconditionFailedError,
             "ADDRESS_NOT_MAPPED": AddressNotMappedError,
             "BREAKPOINT_NOT_FOUND": BreakpointNotFoundError,
+            "CHECKPOINT_NOT_FOUND": CheckpointNotFoundError,
         }
         for reason, error_type in cases.items():
             with self.subTest(reason=reason):
@@ -215,6 +217,26 @@ class AgentClientTests(unittest.TestCase):
                         "environment_segment": "0x0800",
                     }],
                 }}
+            checkpoint = {
+                "checkpoint_id": "checkpoint-1", "label": "entry",
+                "captured_revision": 3, "byte_count": 4096,
+                "sha256": "d" * 64,
+            }
+            if method == "checkpoints.create":
+                return {"result": {"session_id": "ses-1", "state_revision": 3,
+                                   **checkpoint}}
+            if method == "checkpoints.list":
+                return {"result": {"session_id": "ses-1", "state_revision": 3,
+                                   "checkpoints": [checkpoint], "retained_bytes": 4096}}
+            if method == "checkpoints.restore":
+                result = registers_result(7)
+                result.update(checkpoint)
+                result["state"] = "stopped"
+                result["stop_reason"] = {"kind": "checkpoint_restore", "address": address}
+                return {"result": result}
+            if method == "checkpoints.delete":
+                return {"result": {"session_id": "ses-1", "state_revision": 7,
+                                   "checkpoint_id": "checkpoint-1", "deleted": True}}
             if method == "breakpoints.create":
                 return {"result": {"session_id": "ses-1", "state_revision": 5, "breakpoint_id": "bp-1", "kind": "execution", "length": 1, "once": False, "address": address, "condition": None, "hit_filter": {"skip": 0, "every": 1}}}
             if method == "breakpoints.list":
@@ -276,6 +298,15 @@ class AgentClientTests(unittest.TestCase):
         dos_map = client.get_dos_memory_map(session.id)
         self.assertEqual("0x0822", dos_map.target.load_segment)
         self.assertTrue(dos_map.blocks[0].target_owned)
+        checkpoint = client.create_checkpoint(session.id, "entry")
+        self.assertEqual(("checkpoint-1", 4096), (checkpoint.id, checkpoint.byte_count))
+        self.assertEqual((checkpoint,), client.list_checkpoints(session.id))
+        restored_checkpoint, restored_session, restored_registers = \
+            client.restore_checkpoint(session.id, checkpoint.id)
+        self.assertEqual(checkpoint, restored_checkpoint)
+        self.assertEqual("checkpoint_restore", restored_session.stop_reason.kind)
+        self.assertEqual(7, restored_registers.state_revision)
+        self.assertTrue(client.delete_checkpoint(session.id, checkpoint.id))
         breakpoint = client.create_execution_breakpoint(session.id, 0x812, 0x106)
         self.assertEqual("bp-1", breakpoint.id)
         self.assertEqual((breakpoint,), client.list_breakpoints(session.id))
@@ -295,7 +326,7 @@ class AgentClientTests(unittest.TestCase):
         self.assertEqual(1, client.stop_trace(session.id))
         self.assertEqual("op-1", client.pause(session.id).id)
         self.assertEqual("op-1", client.stop(session.id).id)
-        self.assertEqual(28, len(transport.requests))
+        self.assertEqual(32, len(transport.requests))
         self.assertEqual(str(make_config().dosbox_workdir), transport.requests[1]["params"]["mounts"][0]["host_path"])
 
     def test_run_until_predicates_refuse_ambiguous_shapes(self) -> None:

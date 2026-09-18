@@ -925,6 +925,56 @@ bool DebuggerAdapter::GetDosMemoryMap(DosMemoryMap* memory_map,
 #endif
 }
 
+bool DebuggerAdapter::CaptureCheckpoint(CheckpointState* checkpoint,
+                                        std::string* error) const
+{
+    if (!RequireAvailable(error) || !RequireEmulationThread(error) || checkpoint == NULL)
+        return false;
+#if C_DEBUG
+    SaveState::MemoryImage image;
+    std::string checkpoint_error;
+    if (!SaveState::instance().captureMemory(image, checkpoint_error)) {
+        if (error != NULL)
+            *error = checkpoint_error;
+        return false;
+    }
+    checkpoint->components.swap(image);
+    return true;
+#else
+    (void)checkpoint;
+    return false;
+#endif
+}
+
+bool DebuggerAdapter::RestoreCheckpoint(const CheckpointState& checkpoint,
+                                        std::string* error) const
+{
+    if (!RequireAvailable(error) || !RequireEmulationThread(error))
+        return false;
+#if C_DEBUG
+    std::string checkpoint_error;
+    if (!SaveState::instance().restoreMemory(checkpoint.components, checkpoint_error)) {
+        if (error != NULL)
+            *error = checkpoint_error;
+        return false;
+    }
+    // Render's save-state component restores guest-visible video state but
+    // deliberately rebuilds its host buffers, leaving the scaler source cache
+    // cleared. A stopped text-mode target has no next VGA frame to fill it.
+    // Recreate the same source frame used at every headless debugger stop so a
+    // checkpoint restore also restores what SHOT/video.snapshot observes and
+    // what an exposed window redraws, without executing a guest instruction.
+    if (VGA_DebugRenderCurrentTextFrame())
+        RENDER_CaptureFrameForRedraw();
+    else
+        RENDER_DiscardFrameForRedraw();
+    return true;
+#else
+    (void)checkpoint;
+    return false;
+#endif
+}
+
 bool DebuggerAdapter::ExecuteDiagnosticCommand(const std::string& command,
                                                std::string* raw_output,
                                                std::string* error) const

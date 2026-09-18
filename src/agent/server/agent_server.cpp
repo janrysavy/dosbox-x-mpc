@@ -47,9 +47,12 @@ static const int kErrorAddressNotMapped = -32014;
 static const int kErrorBreakpointNotFound = -32015;
 static const int kErrorCommandRejected = -32016;
 static const int kErrorCursorExpired = -32017;
+static const int kErrorCheckpointNotFound = -32018;
 static const std::size_t kOutputRingCapacity = 1024;
 static const std::size_t kCompletedResponseCacheByteLimit = 8u * 1024u * 1024u;
 static const std::size_t kVideoSnapshotCacheByteLimit = 16u * 1024u * 1024u;
+static const std::size_t kCheckpointCountLimit = 8u;
+static const std::size_t kCheckpointCacheByteLimit = 512u * 1024u * 1024u;
 
 static JsonValue Object()
 {
@@ -407,6 +410,36 @@ static std::string Sha256Hex(const std::vector<std::uint8_t>& data)
     return output.str();
 }
 
+static std::size_t CheckpointByteCount(const CheckpointState& checkpoint)
+{
+    std::size_t bytes = 0;
+    for (std::map<std::string, std::string>::const_iterator component =
+                 checkpoint.components.begin();
+         component != checkpoint.components.end(); ++component)
+        bytes += component->second.size();
+    return bytes;
+}
+
+static std::string CheckpointSha256(const CheckpointState& checkpoint)
+{
+    std::vector<std::uint8_t> framed;
+    const std::size_t payload_bytes = CheckpointByteCount(checkpoint);
+    framed.reserve(payload_bytes + checkpoint.components.size() * 32u);
+    for (std::map<std::string, std::string>::const_iterator component =
+                 checkpoint.components.begin();
+         component != checkpoint.components.end(); ++component) {
+        const std::uint64_t name_size = component->first.size();
+        const std::uint64_t data_size = component->second.size();
+        for (int shift = 56; shift >= 0; shift -= 8)
+            framed.push_back(static_cast<std::uint8_t>((name_size >> shift) & 0xffu));
+        framed.insert(framed.end(), component->first.begin(), component->first.end());
+        for (int shift = 56; shift >= 0; shift -= 8)
+            framed.push_back(static_cast<std::uint8_t>((data_size >> shift) & 0xffu));
+        framed.insert(framed.end(), component->second.begin(), component->second.end());
+    }
+    return Sha256Hex(framed);
+}
+
 static bool NormalizeSha256(const std::string& value, std::string* normalized)
 {
     if (value.size() != 64)
@@ -500,6 +533,10 @@ static bool IsKnownMethod(const std::string& method)
            method == "execution.wait" ||
            method == "state.get_registers" ||
            method == "dos.memory_map" ||
+           method == "checkpoints.create" ||
+           method == "checkpoints.list" ||
+           method == "checkpoints.restore" ||
+           method == "checkpoints.delete" ||
            method == "video.snapshot" ||
            method == "video.snapshot.read" ||
            method == "memory.read" ||
@@ -573,6 +610,7 @@ public:
         RegisterSnapshot registers;
         VideoSnapshot video_snapshot;
         DosMemoryMap dos_memory_map;
+        CheckpointState checkpoint;
         std::vector<std::uint8_t> data;
         NativeBreakpoint breakpoint;
         std::string raw_output;
@@ -602,6 +640,15 @@ public:
         bool enabled = true;
         bool temporary = false;
         std::string operation_id;
+    };
+
+    struct Checkpoint {
+        std::string id;
+        std::string label;
+        std::uint64_t captured_revision = 0;
+        std::size_t byte_count = 0;
+        std::string sha256;
+        std::shared_ptr<CheckpointState> state;
     };
 
     struct Session {
@@ -637,6 +684,7 @@ public:
         std::uint64_t next_breakpoint = 1;
         std::uint64_t next_output_sequence = 1;
         std::uint64_t next_video_snapshot = 1;
+        std::uint64_t next_checkpoint = 1;
         std::string pending_stop_kind;
         std::string startup_phase;
         std::uint64_t startup_entry_breakpoint_baseline = 0;
@@ -647,6 +695,7 @@ public:
         bool startup_entry_breakpoint_created = false;
         std::map<std::string, Operation> operations;
         std::map<std::string, Breakpoint> breakpoints;
+        std::map<std::string, Checkpoint> checkpoints;
         std::deque<OutputRecord> output;
         TraceStore trace;
         std::string video_snapshot_id;
@@ -654,6 +703,7 @@ public:
         std::deque<CachedResponse> completed_requests;
         std::size_t completed_response_bytes = 0;
         std::size_t cached_video_snapshot_bytes = 0;
+        std::size_t checkpoint_bytes = 0;
         std::map<std::string, DeferredRequest> deferred_requests;
     };
 
@@ -722,6 +772,8 @@ public:
     virtual bool ConsumeLastBreakpointHit(BreakpointHit* hit) const = 0;
     virtual bool ConsumeLastWatchpointHit(WatchpointHit* hit) const = 0;
     virtual bool GetDosMemoryMap(DosMemoryMap* memory_map, std::string* error) const = 0;
+    virtual bool CaptureCheckpoint(CheckpointState* checkpoint, std::string* error) const = 0;
+    virtual bool RestoreCheckpoint(const CheckpointState& checkpoint, std::string* error) const = 0;
     virtual bool ExecuteDiagnosticCommand(const std::string& command,
                                           std::string* raw_output,
                                           std::string* error) const = 0;
@@ -768,6 +820,8 @@ public:
     AGENT_RUNTIME_FORWARD(ConsumeLastBreakpointHit, bool ConsumeLastBreakpointHit(BreakpointHit* hit) const, (hit))
     AGENT_RUNTIME_FORWARD(ConsumeLastWatchpointHit, bool ConsumeLastWatchpointHit(WatchpointHit* hit) const, (hit))
     AGENT_RUNTIME_FORWARD(GetDosMemoryMap, bool GetDosMemoryMap(DosMemoryMap* memory_map, std::string* error) const, (memory_map, error))
+    AGENT_RUNTIME_FORWARD(CaptureCheckpoint, bool CaptureCheckpoint(CheckpointState* checkpoint, std::string* error) const, (checkpoint, error))
+    AGENT_RUNTIME_FORWARD(RestoreCheckpoint, bool RestoreCheckpoint(const CheckpointState& checkpoint, std::string* error) const, (checkpoint, error))
     AGENT_RUNTIME_FORWARD(ExecuteDiagnosticCommand, bool ExecuteDiagnosticCommand(const std::string& command, std::string* raw_output, std::string* error) const, (command, raw_output, error))
     AGENT_RUNTIME_FORWARD(StartTrace, bool StartTrace(const std::string& detail, std::uint32_t instruction_count, std::string* error) const, (detail, instruction_count, error))
     AGENT_RUNTIME_FORWARD(ReadTrace, bool ReadTrace(std::vector<TraceSample>* samples, bool* active, std::string* error) const, (samples, active, error))
@@ -838,7 +892,20 @@ public:
 
 #define AGENT_RUNTIME_UNAVAILABLE(method, signature) \
     signature override { SetUnavailable(error); return false; }
-    AGENT_RUNTIME_UNAVAILABLE(GetRegisters, bool GetRegisters(RegisterSnapshot*, std::string* error) const)
+    bool GetRegisters(RegisterSnapshot* registers, std::string*) const override
+    {
+        if (registers == NULL)
+            return false;
+        registers->cs = 0x1000;
+        registers->ds = 0x1000;
+        registers->es = 0x1000;
+        registers->ss = 0x1000;
+        registers->esp = 0xfffe;
+        registers->instruction_pointer = 0x0100;
+        registers->flags = 0x0202;
+        registers->cpu_mode = "real";
+        return true;
+    }
     bool CaptureVideoSnapshot(VideoSnapshot* snapshot, std::string* error) const override
     {
         if (snapshot == NULL) {
@@ -945,6 +1012,23 @@ public:
         memory_map->blocks.push_back(block);
         return true;
     }
+    bool CaptureCheckpoint(CheckpointState* checkpoint, std::string*) const override
+    {
+        if (checkpoint == NULL)
+            return false;
+        checkpoint->components.clear();
+        checkpoint->components["Fake"] = fake_checkpoint_state;
+        return true;
+    }
+    bool RestoreCheckpoint(const CheckpointState& checkpoint, std::string*) const override
+    {
+        const std::map<std::string, std::string>::const_iterator state =
+                checkpoint.components.find("Fake");
+        if (state == checkpoint.components.end())
+            return false;
+        fake_checkpoint_state = state->second;
+        return true;
+    }
     AGENT_RUNTIME_UNAVAILABLE(ExecuteDiagnosticCommand, bool ExecuteDiagnosticCommand(const std::string&, std::string*, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(StartTrace, bool StartTrace(const std::string&, std::uint32_t, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(ReadTrace, bool ReadTrace(std::vector<TraceSample>*, bool*, std::string* error) const)
@@ -955,6 +1039,7 @@ private:
     mutable std::atomic<std::uintptr_t> next_fake_breakpoint{0x2000};
     mutable std::atomic<std::uintptr_t> armed_fake_breakpoint{0};
     mutable std::atomic<std::uintptr_t> hit_fake_breakpoint{0};
+    mutable std::string fake_checkpoint_state{"fake-state"};
 
     static void SetUnavailable(std::string* error)
     {
@@ -1214,6 +1299,17 @@ static JsonValue SessionResult(const AgentServer::Impl::Session& session)
     return result;
 }
 
+static JsonValue CheckpointFields(const AgentServer::Impl::Checkpoint& checkpoint)
+{
+    JsonValue result = Object();
+    Add(&result, "checkpoint_id", String(checkpoint.id));
+    Add(&result, "label", String(checkpoint.label));
+    Add(&result, "captured_revision", Number(checkpoint.captured_revision));
+    Add(&result, "byte_count", Number(checkpoint.byte_count));
+    Add(&result, "sha256", String(checkpoint.sha256));
+    return result;
+}
+
 static void AppendOutput(AgentServer::Impl::Session* session,
                          const std::string& source,
                          const std::string& message)
@@ -1384,7 +1480,8 @@ static JsonValue StopReason(const AgentServer::Impl::Session& session)
     if (session.has_last_stop_breakpoint_address) {
         Add(&stop, "address", EncodeMemoryAddress(session.last_stop_breakpoint_address));
     } else if (session.last_stop_kind == "startup" || session.last_stop_kind == "step" ||
-               session.last_stop_kind == "breakpoint" || session.last_stop_kind == "run_until") {
+               session.last_stop_kind == "breakpoint" || session.last_stop_kind == "run_until" ||
+               session.last_stop_kind == "checkpoint_restore") {
         JsonValue address = Object();
         Add(&address, "space", String("segmented"));
         std::ostringstream segment;
@@ -1786,6 +1883,12 @@ static std::string Capabilities(const AgentConfig& config)
     Add(&video, "atomic_components", JsonValue::Bool(true));
     Add(&video, "paged_read", JsonValue::Bool(true));
     Add(&result, "video", video);
+    JsonValue checkpoints = Object();
+    Add(&checkpoints, "create", JsonValue::Bool(true));
+    Add(&checkpoints, "restore", JsonValue::Bool(true));
+    Add(&checkpoints, "session_memory", JsonValue::Bool(true));
+    Add(&checkpoints, "host_files", JsonValue::Bool(false));
+    Add(&result, "checkpoints", checkpoints);
     JsonValue dos_capabilities = Object();
     Add(&dos_capabilities, "memory_map", JsonValue::Bool(true));
     Add(&dos_capabilities, "loader_metadata", JsonValue::Bool(true));
@@ -1850,6 +1953,8 @@ static std::string Capabilities(const AgentConfig& config)
     Add(&limits, "max_message_bytes", Number(config.max_message_bytes));
     Add(&limits, "max_memory_read_bytes", Number(config.max_memory_read_bytes));
     Add(&limits, "max_trace_events", Number(config.max_trace_events));
+    Add(&limits, "max_checkpoints", Number(kCheckpointCountLimit));
+    Add(&limits, "max_checkpoint_bytes", Number(kCheckpointCacheByteLimit));
     Add(&result, "limits", limits);
     return AGENT_SerializeJson(result);
 }
@@ -2696,6 +2801,244 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                 } else {
                     response = AGENT_MakeJsonRpcResult(
                             parsed.id, DosMemoryMapResult(operation->dos_memory_map, *session));
+                }
+            }
+        }
+    } else if (parsed.method == "checkpoints.create") {
+        std::string label;
+        const JsonValue* label_value = parsed.params.Find("label");
+        const bool label_valid = label_value == NULL ||
+                (label_value->type == JsonType::String && label_value->text.size() <= 64u);
+        if (label_value != NULL && label_value->type == JsonType::String)
+            label = label_value->text;
+        if (!label_valid) {
+            response = InvalidParams(parsed.id,
+                                     "checkpoints.create label must be a string of at most 64 bytes");
+        } else if (session->state == Impl::SessionState::Running) {
+            response = SessionError(parsed.id, kErrorTargetRunning,
+                                    "Target must be stopped before creating a checkpoint",
+                                    "TARGET_RUNNING", session);
+        } else if (session->state == Impl::SessionState::Exited) {
+            response = SessionError(parsed.id, kErrorCapabilityUnavailable,
+                                    "Target has exited", "TARGET_EXITED", session);
+        } else if (session->state != Impl::SessionState::Stopped) {
+            response = SessionError(parsed.id, kErrorCapabilityUnavailable,
+                                    "Target must be stopped before creating a checkpoint",
+                                    "TARGET_NOT_STOPPED", session);
+        } else if (session->trace.IsActive()) {
+            response = Error(parsed.id, kErrorCapabilityUnavailable,
+                             "Stop the active trace before creating a checkpoint",
+                             "TRACE_ACTIVE");
+        } else if (session->checkpoints.size() >= kCheckpointCountLimit) {
+            response = Error(parsed.id, kErrorRequestTooLarge,
+                             "The session checkpoint count limit has been reached",
+                             "CHECKPOINT_LIMIT");
+        } else {
+            const std::shared_ptr<Impl::AdapterOperation> operation(new Impl::AdapterOperation());
+            const std::string session_id = session->id;
+            if (SubmitEmulationCommandLocked(impl, [impl, operation](const std::uint64_t) {
+                    AgentRuntime& adapter = *impl->runtime;
+                    std::string adapter_error;
+                    CheckpointState checkpoint;
+                    const bool success = adapter.CaptureCheckpoint(&checkpoint, &adapter_error);
+                    {
+                        std::lock_guard<std::mutex> operation_lock(operation->mutex);
+                        operation->success = success;
+                        operation->error = adapter_error;
+                        operation->checkpoint = std::move(checkpoint);
+                        operation->done = true;
+                    }
+                    operation->completed.notify_all();
+                }) == 0) {
+                response = Error(parsed.id, kErrorCapabilityUnavailable,
+                                 "Emulation-thread bridge is unavailable", "COMMAND_REJECTED");
+            } else {
+                std::unique_lock<std::mutex> operation_lock(operation->mutex);
+                lock.unlock();
+                const bool completed = operation->completed.wait_for(
+                        operation_lock,
+                        std::chrono::milliseconds(impl->config.request_timeout_ms),
+                        [operation]() { return operation->done; });
+                lock.lock();
+                if (!RebindSessionAfterWait(impl, session_id, &session, &response, parsed.id))
+                    return response;
+                if (!completed) {
+                    response = Error(parsed.id, kErrorOperationTimeout,
+                                     "Timed out creating the checkpoint", "OPERATION_TIMEOUT");
+                } else if (!operation->success) {
+                    response = Error(parsed.id, kErrorCapabilityUnavailable,
+                                     operation->error.empty() ?
+                                             "Unable to create checkpoint" : operation->error,
+                                     "COMMAND_REJECTED");
+                } else {
+                    const std::size_t byte_count = CheckpointByteCount(operation->checkpoint);
+                    if (byte_count > kCheckpointCacheByteLimit ||
+                        session->checkpoint_bytes > kCheckpointCacheByteLimit - byte_count) {
+                        response = Error(parsed.id, kErrorRequestTooLarge,
+                                         "The session checkpoint byte limit would be exceeded",
+                                         "CHECKPOINT_LIMIT");
+                    } else {
+                        Impl::Checkpoint checkpoint;
+                        checkpoint.id = "checkpoint-" +
+                                std::to_string(session->next_checkpoint++);
+                        checkpoint.label = label;
+                        checkpoint.captured_revision = session->state_revision;
+                        checkpoint.byte_count = byte_count;
+                        checkpoint.sha256 = CheckpointSha256(operation->checkpoint);
+                        checkpoint.state = std::make_shared<CheckpointState>(
+                                std::move(operation->checkpoint));
+                        session->checkpoint_bytes += checkpoint.byte_count;
+                        session->checkpoints[checkpoint.id] = checkpoint;
+                        JsonValue result = SessionResult(*session);
+                        const JsonValue fields = CheckpointFields(checkpoint);
+                        for (std::map<std::string, JsonValue>::const_iterator item =
+                                     fields.object.begin(); item != fields.object.end(); ++item)
+                            Add(&result, item->first.c_str(), item->second);
+                        response = AGENT_MakeJsonRpcResult(parsed.id, result);
+                    }
+                }
+            }
+        }
+    } else if (parsed.method == "checkpoints.list") {
+        if (session->state == Impl::SessionState::Running) {
+            response = SessionError(parsed.id, kErrorTargetRunning,
+                                    "Target must be stopped before listing checkpoints",
+                                    "TARGET_RUNNING", session);
+        } else {
+            JsonValue result = SessionResult(*session);
+            JsonValue checkpoints = JsonValue::Array();
+            for (std::map<std::string, Impl::Checkpoint>::const_iterator checkpoint =
+                         session->checkpoints.begin(); checkpoint != session->checkpoints.end();
+                 ++checkpoint)
+                checkpoints.array.push_back(CheckpointFields(checkpoint->second));
+            Add(&result, "checkpoints", checkpoints);
+            Add(&result, "retained_bytes", Number(session->checkpoint_bytes));
+            response = AGENT_MakeJsonRpcResult(parsed.id, result);
+        }
+    } else if (parsed.method == "checkpoints.delete") {
+        std::string checkpoint_id;
+        if (!GetString(parsed.params, "checkpoint_id", &checkpoint_id) || checkpoint_id.empty()) {
+            response = InvalidParams(parsed.id,
+                                     "checkpoints.delete requires checkpoint_id");
+        } else if (session->state == Impl::SessionState::Running) {
+            response = SessionError(parsed.id, kErrorTargetRunning,
+                                    "Target must be stopped before deleting a checkpoint",
+                                    "TARGET_RUNNING", session);
+        } else {
+            std::map<std::string, Impl::Checkpoint>::iterator checkpoint =
+                    session->checkpoints.find(checkpoint_id);
+            if (checkpoint == session->checkpoints.end()) {
+                response = Error(parsed.id, kErrorCheckpointNotFound,
+                                 "Checkpoint was not found", "CHECKPOINT_NOT_FOUND");
+            } else {
+                session->checkpoint_bytes -= checkpoint->second.byte_count;
+                session->checkpoints.erase(checkpoint);
+                JsonValue result = SessionResult(*session);
+                Add(&result, "checkpoint_id", String(checkpoint_id));
+                Add(&result, "deleted", JsonValue::Bool(true));
+                response = AGENT_MakeJsonRpcResult(parsed.id, result);
+            }
+        }
+    } else if (parsed.method == "checkpoints.restore") {
+        std::string checkpoint_id;
+        if (!GetString(parsed.params, "checkpoint_id", &checkpoint_id) || checkpoint_id.empty()) {
+            response = InvalidParams(parsed.id,
+                                     "checkpoints.restore requires checkpoint_id");
+        } else if (session->state == Impl::SessionState::Running) {
+            response = SessionError(parsed.id, kErrorTargetRunning,
+                                    "Target must be stopped before restoring a checkpoint",
+                                    "TARGET_RUNNING", session);
+        } else if (session->state == Impl::SessionState::Exited) {
+            response = SessionError(parsed.id, kErrorCapabilityUnavailable,
+                                    "Target has exited", "TARGET_EXITED", session);
+        } else if (session->state != Impl::SessionState::Stopped) {
+            response = SessionError(parsed.id, kErrorCapabilityUnavailable,
+                                    "Target must be stopped before restoring a checkpoint",
+                                    "TARGET_NOT_STOPPED", session);
+        } else if (session->trace.IsActive()) {
+            response = Error(parsed.id, kErrorCapabilityUnavailable,
+                             "Stop the active trace before restoring a checkpoint",
+                             "TRACE_ACTIVE");
+        } else {
+            const std::map<std::string, Impl::Checkpoint>::const_iterator checkpoint =
+                    session->checkpoints.find(checkpoint_id);
+            if (checkpoint == session->checkpoints.end()) {
+                response = Error(parsed.id, kErrorCheckpointNotFound,
+                                 "Checkpoint was not found", "CHECKPOINT_NOT_FOUND");
+            } else {
+                const Impl::Checkpoint checkpoint_metadata = checkpoint->second;
+                const std::shared_ptr<const CheckpointState> checkpoint_state =
+                        checkpoint->second.state;
+                const std::shared_ptr<Impl::AdapterOperation> operation(
+                        new Impl::AdapterOperation());
+                const std::string session_id = session->id;
+                if (SubmitEmulationCommandLocked(impl,
+                        [impl, operation, checkpoint_state](const std::uint64_t) {
+                    AgentRuntime& adapter = *impl->runtime;
+                    std::string adapter_error;
+                    RegisterSnapshot registers;
+                    bool success = checkpoint_state &&
+                            adapter.RestoreCheckpoint(*checkpoint_state, &adapter_error);
+                    if (success)
+                        success = adapter.GetRegisters(&registers, &adapter_error);
+                    {
+                        std::lock_guard<std::mutex> operation_lock(operation->mutex);
+                        operation->success = success;
+                        operation->error = adapter_error;
+                        operation->registers = registers;
+                        operation->done = true;
+                    }
+                    operation->completed.notify_all();
+                }) == 0) {
+                    response = Error(parsed.id, kErrorCapabilityUnavailable,
+                                     "Emulation-thread bridge is unavailable",
+                                     "COMMAND_REJECTED");
+                } else {
+                    std::unique_lock<std::mutex> operation_lock(operation->mutex);
+                    lock.unlock();
+                    const bool completed = operation->completed.wait_for(
+                            operation_lock,
+                            std::chrono::milliseconds(impl->config.request_timeout_ms),
+                            [operation]() { return operation->done; });
+                    lock.lock();
+                    if (!RebindSessionAfterWait(impl, session_id, &session, &response, parsed.id))
+                        return response;
+                    if (!completed) {
+                        response = Error(parsed.id, kErrorOperationTimeout,
+                                         "Timed out restoring the checkpoint",
+                                         "OPERATION_TIMEOUT");
+                    } else if (!operation->success) {
+                        response = Error(parsed.id, kErrorCapabilityUnavailable,
+                                         operation->error.empty() ?
+                                                 "Unable to restore checkpoint" : operation->error,
+                                         "COMMAND_REJECTED");
+                    } else {
+                        ++session->state_revision;
+                        session->last_stop_kind = "checkpoint_restore";
+                        session->last_stop_message.clear();
+                        session->last_stop_segment = operation->registers.cs;
+                        session->last_stop_instruction_pointer =
+                                operation->registers.instruction_pointer;
+                        session->last_stop_breakpoint_id.clear();
+                        session->has_last_stop_breakpoint_address = false;
+                        session->has_last_stop_breakpoint_hit_count = false;
+                        session->has_last_interrupt_event = false;
+                        session->has_last_watchpoint_hit = false;
+                        session->has_last_watchpoint_registers = false;
+                        session->video_snapshot.reset();
+                        session->video_snapshot_id.clear();
+                        session->completed_requests.clear();
+                        session->completed_response_bytes = 0;
+                        session->cached_video_snapshot_bytes = 0;
+                        JsonValue result = RegistersResult(operation->registers, *session);
+                        Add(&result, "state", String("stopped"));
+                        Add(&result, "stop_reason", StopReason(*session));
+                        const JsonValue fields = CheckpointFields(checkpoint_metadata);
+                        for (std::map<std::string, JsonValue>::const_iterator item =
+                                     fields.object.begin(); item != fields.object.end(); ++item)
+                            Add(&result, item->first.c_str(), item->second);
+                        response = AGENT_MakeJsonRpcResult(parsed.id, result);
+                    }
                 }
             }
         }

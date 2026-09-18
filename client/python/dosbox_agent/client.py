@@ -18,6 +18,7 @@ from .models import (
     Breakpoint,
     BreakpointCondition,
     BreakpointHitFilter,
+    Checkpoint,
     DiagnosticCommandResult,
     DosMemoryBlock,
     DosMemoryMap,
@@ -326,6 +327,48 @@ class AgentClient:
             blocks=tuple(DosMemoryBlock.from_rpc(_object_value(block, "DOS memory block"))
                          for block in blocks),
         )
+
+    def create_checkpoint(self, session_id: str, label: str = "",
+                          request_id: str | None = None) -> Checkpoint:
+        if not isinstance(label, str) or len(label.encode("utf-8")) > 64:
+            raise ValueError("checkpoint label must contain at most 64 UTF-8 bytes")
+        return _checkpoint(self.call("checkpoints.create", {
+            "session_id": session_id,
+            "label": label,
+        }, request_id))
+
+    def list_checkpoints(self, session_id: str,
+                         request_id: str | None = None) -> tuple[Checkpoint, ...]:
+        result = self.call("checkpoints.list", {"session_id": session_id}, request_id)
+        checkpoints = result.get("checkpoints")
+        if not isinstance(checkpoints, list):
+            raise AgentProtocolError("checkpoints.list response is missing checkpoints")
+        return tuple(_checkpoint(_object_value(item, "checkpoint")) for item in checkpoints)
+
+    def restore_checkpoint(self, session_id: str, checkpoint_id: str,
+                           request_id: str | None = None) -> tuple[Checkpoint, Session, RegisterSnapshot]:
+        if not checkpoint_id:
+            raise ValueError("checkpoint_id must not be empty")
+        result = self.call("checkpoints.restore", {
+            "session_id": session_id,
+            "checkpoint_id": checkpoint_id,
+        }, request_id)
+        return (_checkpoint(result),
+                _session(result, stop_key="stop_reason", default_state="stopped"),
+                _registers(result))
+
+    def delete_checkpoint(self, session_id: str, checkpoint_id: str,
+                          request_id: str | None = None) -> bool:
+        if not checkpoint_id:
+            raise ValueError("checkpoint_id must not be empty")
+        result = self.call("checkpoints.delete", {
+            "session_id": session_id,
+            "checkpoint_id": checkpoint_id,
+        }, request_id)
+        deleted = result.get("deleted")
+        if not isinstance(deleted, bool):
+            raise AgentProtocolError("checkpoints.delete response has an invalid deleted field")
+        return deleted
 
     def capture_video(self, session_id: str, request_id: str | None = None) -> VideoSnapshot:
         result = self.call("video.snapshot", {"session_id": session_id}, request_id)
@@ -690,6 +733,21 @@ def _session(result: Mapping[str, Any], *, stop_key: str, default_state: str | N
 
 def _operation(result: Mapping[str, Any]) -> Operation:
     return Operation(_string(result, "operation_id"), _string(result, "session_id"), _integer(result, "state_revision"))
+
+
+def _checkpoint(result: Mapping[str, Any]) -> Checkpoint:
+    sha256 = _string(result, "sha256")
+    try:
+        _validate_sha256(sha256)
+    except ValueError as error:
+        raise AgentProtocolError("checkpoint sha256 is not 64 hexadecimal characters") from error
+    return Checkpoint(
+        id=_string(result, "checkpoint_id"),
+        label=_string(result, "label"),
+        captured_revision=_integer(result, "captured_revision"),
+        byte_count=_integer(result, "byte_count"),
+        sha256=sha256.lower(),
+    )
 
 
 def _registers(result: Mapping[str, Any]) -> RegisterSnapshot:

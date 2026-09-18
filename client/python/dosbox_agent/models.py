@@ -259,6 +259,15 @@ class RunUntilOperation:
 
 
 @dataclass(frozen=True)
+class Checkpoint:
+    id: str
+    label: str
+    captured_revision: int
+    byte_count: int
+    sha256: str
+
+
+@dataclass(frozen=True)
 class WaitResult:
     session: Session
     running: bool

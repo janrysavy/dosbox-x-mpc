@@ -368,6 +368,57 @@ void SaveState::registerComponent(const std::string& uniqueName, Component& comp
 	components.insert(std::make_pair(uniqueName, CompData(comp)));
 }
 
+bool SaveState::captureMemory(MemoryImage& image, std::string& error) {
+	image.clear();
+	error.clear();
+	try {
+		for (CompEntry::iterator i = components.begin(); i != components.end(); ++i) {
+			std::ostringstream stream(std::ios::out | std::ios::binary);
+			i->second.comp.getBytes(stream);
+			if (!stream.good()) {
+				error = "Unable to serialize save-state component " + i->first;
+				image.clear();
+				return false;
+			}
+			image[i->first] = stream.str();
+		}
+	} catch (...) {
+		error = "A save-state component threw while it was being serialized";
+		image.clear();
+		return false;
+	}
+	return true;
+}
+
+bool SaveState::restoreMemory(const MemoryImage& image, std::string& error) const {
+	error.clear();
+	if (image.size() != components.size()) {
+		error = "Checkpoint component set does not match this emulator";
+		return false;
+	}
+	for (CompEntry::const_iterator i = components.begin(); i != components.end(); ++i) {
+		if (image.find(i->first) == image.end()) {
+			error = "Checkpoint is missing save-state component " + i->first;
+			return false;
+		}
+	}
+	try {
+		for (CompEntry::const_iterator i = components.begin(); i != components.end(); ++i) {
+			const std::string& bytes = image.find(i->first)->second;
+			std::istringstream stream(bytes, std::ios::in | std::ios::binary);
+			i->second.comp.setBytes(stream);
+			if (stream.bad()) {
+				error = "Unable to restore save-state component " + i->first;
+				return false;
+			}
+		}
+	} catch (...) {
+		error = "A save-state component threw while it was being restored";
+		return false;
+	}
+	return true;
+}
+
 #define CASESENSITIVITY (0)
 #define MAXFILENAME (256)
 

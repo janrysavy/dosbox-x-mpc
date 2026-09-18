@@ -338,7 +338,11 @@ JSON number 不能无损表达所有未来 guest address，v1 所有 guest 寄�
 }
 ```
 
-Valid `kind` values are `startup`, `step`, `breakpoint`, `run_until`, `pause`, `program_exit`, `session_stop`, and `fault`. A response with `execution.wait` `running=true` must not also contain `stop_reason`. `program_exit` is emitted only for a natural DOS exit of the captured target PSP; `session.stop` reports `session_stop`.
+Valid `kind` values are `startup`, `step`, `breakpoint`, `run_until`,
+`checkpoint_restore`, `pause`, `program_exit`, `session_stop`, and `fault`. A
+response with `execution.wait` `running=true` must not also contain
+`stop_reason`. `program_exit` is emitted only for a natural DOS exit of the
+captured target PSP; `session.stop` reports `session_stop`.
 
 `execution.run_until` removes the controller race between a separate
 `breakpoints.create` and `execution.continue`. Its single predicate supports
@@ -416,7 +420,37 @@ contract. The loaded MZ image size is the sum of bytes actually returned by the
 loader reads, not `pages * 512 - header_size`, because the last MZ page can be
 partial.
 
-### 8.6 Breakpoint
+### 8.6 Checkpoints
+
+`checkpoints.create`, `checkpoints.list`, `checkpoints.restore`, and
+`checkpoints.delete` retain session-private emulator states in memory. Create
+and restore require a stopped, non-exited target and no active CPU trace; list
+and delete also refuse a running target. A descriptor contains a stable
+`checkpoint_id`, optional label, the captured state revision, total serialized
+byte count, and SHA-256 over a length-framed, name-sorted component stream.
+
+The image uses DOSBox-X's registered save-state component serializers, so CPU,
+RAM, DOS, devices, timers, VGA and renderer state follow the emulator's own save
+contract instead of a partial agent-owned copy. Restore executes on the
+emulation thread, returns a complete register snapshot, increments the monotonic
+controller revision, and reports `stop_reason.kind=checkpoint_restore` at the
+restored CS:IP. It invalidates completed-response and video-snapshot caches so a
+pre-restore idempotent reply or frame cannot describe the new timeline.
+
+The host renderer source cache is rebuilt from restored VGA text state without
+executing a guest instruction. This matters for stopped programs: the normal
+next VGA frame never arrives. The Pyro II gameplay proof found the initial
+implementation restoring text VRAM, fonts, DAC, palette and CRTC while returning
+a cleared frame cache; the repaired run restores all six snapshot components
+byte-for-byte.
+
+Checkpoints deliberately do not copy or roll back mounted host files;
+`agent.capabilities.checkpoints.host_files=false` makes that boundary explicit.
+The current per-session limits are eight checkpoints and 512 MiB total, reported
+as `limits.max_checkpoints` and `limits.max_checkpoint_bytes`. Exceeding either
+returns `CHECKPOINT_LIMIT`; an unknown id returns `CHECKPOINT_NOT_FOUND`.
+
+### 8.7 Breakpoint
 
 | 方法 | 参数 | 结果 | 规则 |
 | --- | --- | --- | --- |
@@ -453,7 +487,7 @@ and `interrupt_phase=before_handler`.
 
 RPC id 不得复用 `CBreakpoint` 当前显示列表 index。adapter 必须生成 session 内稳定的 `bp-*` id，并维护其与底层 breakpoint object 的映射，避免 `BPDEL` 后索引变化导致误删。
 
-### 8.7 Debugger 输出、原始命令和 trace
+### 8.8 Debugger 输出、原始命令和 trace
 
 | 方法 | 作用 | 结果约束 |
 | --- | --- | --- |
@@ -589,6 +623,7 @@ read value is the value placed in AL at the complete-instruction boundary.
 - [x] `RPC-C13` - exact DOS loader metadata and live MCB ownership; the COM fixture reports its 25 bytes, PSP-relative entry, separate load segment, and target process block, while the Turbo Pascal MZ probe's partial final page reports 3,408 bytes rather than the 3,488-byte rounded-page upper bound. Evidence: 2026-09-18, the named-pipe E2E passed and `re/harness/traces/agent-dos-map/session.txt` matched the mounted MZ header, relocated entry and stack with zero missing measurements.
 - [x] `RPC-C14` - semantic software-interrupt breakpoints; `AGINT.COM` first calls DOS version service, then asks DOS to terminate with `INT 21h`, AX=`4C07h`. A one-shot `INT 21h/AH=4Ch` selector ignores the earlier call, stops before the termination handler with actual AL=`07h`, disappears from the list, and continuation produces `program_exit` code 7. Evidence: 2026-09-18, three independent named-pipe E2E runs produced that exact event and exit; 73 GoogleTests passed.
 - [x] `RPC-C15` - atomic run-until predicates; one RPC installs one private native predicate and resumes in the same emulation-thread callback. The matching stop is `kind=run_until`, carries the returned `until-*` id and hit count, and the predicate is removed on either its hit or a competing stop. Evidence: 2026-09-18, 75 GoogleTests passed; three fresh named-pipe E2E runs each reached `AGENTFIX.COM` `CS:0109` with `predicate=until-1`, `hit_count=1`, and no user-visible temporary breakpoint. The Turbo Pascal probe transcript `re/harness/traces/agent-run-until/session.txt` atomically caught its write at `08AB:0028`, linear `B8144`, old `3E`, new `20`, post-IP `002B`, with zero missing measurements.
+- [x] `RPC-C16` - in-memory checkpoint/restore; the server captures every registered DOSBox-X save-state component on the emulation thread, returns stable identity/size/hash metadata, restores registers and memory after mutation, invalidates cached responses and snapshots, and deletes retained state. Evidence: 2026-09-18, 76 GoogleTests and 12 Python client tests passed; three independent clean E2E runs mutated fixture memory and stepped, then restored IP `0109` plus the original four data bytes. The live Pyro II entry-menu run at `re/harness/traces/pyro-checkpoint/session.txt` consumed Down, observed changed text/frame/CRTC hashes, restored BIOS tick 13929 and the original CPU/menu state, and matched text VRAM, both font pages, DAC, renderer palette, 512,000-byte source frame and CRTC byte-for-byte. That test first exposed a cleared post-restore renderer cache; rebuilding the text frame from restored VGA state fixed it without executing a guest instruction.
 
 ### 阶段 D：输出、trace 和兼容命令
 
@@ -600,7 +635,7 @@ read value is the value placed in AL at the complete-instruction boundary.
 
 ### 阶段 E：Client 和端到端
 
-- [x] `RPC-E01` - Python client unit tests; run `python -m unittest discover -s client\python\tests -t client\python -v`. Evidence: 2026-09-18, all 12 tests passed, including typed atomic run-until predicates, interrupt selectors/events, exact-watchpoint evidence, structured breakpoint policies, binary-length validation and malformed base64 rejection.
+- [x] `RPC-E01` - Python client unit tests; run `python -m unittest discover -s client\python\tests -t client\python -v`. Evidence: 2026-09-18, all 12 tests passed, including typed checkpoint lifecycle and error mapping, atomic run-until predicates, interrupt selectors/events, exact-watchpoint evidence, structured breakpoint policies, binary-length validation and malformed base64 rejection.
 - [x] `RPC-E02` - End-to-end fixture; run `python client\python\tests\test_e2e.py --config tests\agent\agent-test.env`. It covers start, execution and semantic interrupt breakpoints, continue, wait, registers, memory access, step, controller stop, natural DOS exit, child-PSP filtering, and continue/stop race ordering. A passing run exits zero.
 - [x] `RPC-E03` - DOSBox-X 既有单元测试未回归；执行 `& '.\bin\x64\Agent Debug SDL2\dosbox-x.exe' -tests`；退出码为 0 且输出 `Unit test completed: success`；证据：2026-09-02，`-tests` 退出码为 0；当前 Windows GUI build 不向调用 PowerShell 转发测试日志，`shell.cpp` 的 `RUN_ALL_TESTS()` 返回值为进程退出状态。
 - [x] `RPC-E04` - 干净运行可重复；执行 `if (Test-Path tests\agent\runtime) { Remove-Item -Recurse -Force tests\agent\runtime }; New-Item -ItemType Directory -Path tests\agent\runtime` 后，连续运行 E02 三次；三次均通过，trace 和输出无跨运行数据；证据：2026-09-18，`tests\agent\verify_client_clean_runs.ps1` created three independent runtime/config directories, deliberately cleared DOS `PATH`, and completed all three runs. Target startup now calls the internal mount implementation synchronously; for command lines over 100 bytes it seeds DOSBox-X's long-command buffer with those exact arguments, so the long per-run path cannot be replaced by stale shell input. Every run also starts output sequence at 1 and trace sequence at 1, 2.

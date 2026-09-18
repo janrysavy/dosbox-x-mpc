@@ -2,6 +2,7 @@
 #define DOSBOX_AGENT_DEBUGGER_ADAPTER_H
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -190,6 +191,10 @@ struct DosMemoryMap {
     std::vector<DosMemoryBlock> blocks;
 };
 
+struct CheckpointState {
+    std::map<std::string, std::string> components;
+};
+
 class DebuggerAdapter {
 public:
     bool IsAvailable() const;
@@ -236,6 +241,8 @@ public:
     bool ConsumeLastBreakpointHit(BreakpointHit* hit) const;
     bool ConsumeLastWatchpointHit(WatchpointHit* hit) const;
     bool GetDosMemoryMap(DosMemoryMap* memory_map, std::string* error) const;
+    bool CaptureCheckpoint(CheckpointState* checkpoint, std::string* error) const;
+    bool RestoreCheckpoint(const CheckpointState& checkpoint, std::string* error) const;
     bool ExecuteDiagnosticCommand(const std::string& command,
                                   std::string* raw_output,
                                   std::string* error) const;
