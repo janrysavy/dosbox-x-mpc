@@ -732,6 +732,22 @@ return `TRACE_ACTIVE` while the recorder is active, because a restored clock
 cannot share one unambiguous event timeline. Session termination stops the
 recorder automatically.
 
+### Guarded atomic register writes
+
+`state.set_registers` writes canonical full-width registers only: `eax` through
+`esp`, `cs` through `ss`, `instruction_pointer`, and `flags`. It requires a
+stopped real-mode target, `expected_state_revision`, a non-empty `expected` map,
+and a non-empty `set` map. Every register in `set` must also occur in `expected`.
+Segments use `0xNNNN`; other values use `0xNNNNNNNN`.
+
+The complete expected map is checked on the emulation thread before any value is
+changed. A stale revision or mismatched old value returns
+`REGISTER_PRECONDITION_FAILED`. A successful call applies the whole map, reads it
+back exactly, increments the session revision once, and returns `before` and
+`after` snapshots. A failed exact readback rolls the complete snapshot back.
+Protected/v86 writes are rejected until descriptor-cache semantics can be made
+equally explicit; the API never approximates them with real-mode segment bases.
+
 - 协议契约：[rpc.md](rpc.md)
 - 开发和验收规范：[rpc-development.md](rpc-development.md)
 - Python client：`client/python/dosbox_agent/`

@@ -50,6 +50,13 @@ struct RegisterSnapshot {
     std::string cpu_mode;
 };
 
+struct RegisterWriteResult {
+    RegisterSnapshot before;
+    RegisterSnapshot after;
+    bool precondition_failed = false;
+    std::string mismatch_register;
+};
+
 enum class KeyboardKey {
     Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7, Digit8, Digit9, Digit0,
     Q, W, E, R, T, Y, U, I, O, P,
@@ -306,6 +313,10 @@ public:
                             const std::string& workdir,
                             std::string* error) const;
     bool GetRegisters(RegisterSnapshot* registers, std::string* error) const;
+    bool SetRegistersGuarded(const std::map<std::string, std::uint32_t>& expected,
+                             const std::map<std::string, std::uint32_t>& values,
+                             RegisterWriteResult* result,
+                             std::string* error) const;
     bool ApplyKeyboardInput(const std::vector<KeyboardInputEvent>& events,
                             InputState* state,
                             std::string* error) const;

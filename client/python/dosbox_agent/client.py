@@ -35,6 +35,7 @@ from .models import (
     OutputPage,
     OutputRecord,
     RegisterSnapshot,
+    RegisterWriteResult,
     RunUntilOperation,
     RunUntilPredicate,
     Session,
@@ -318,6 +319,43 @@ class AgentClient:
 
     def get_registers(self, session_id: str, request_id: str | None = None) -> RegisterSnapshot:
         return _registers(self.call("state.get_registers", {"session_id": session_id}, request_id))
+
+    def set_registers(
+        self,
+        session_id: str,
+        expected_state_revision: int,
+        expected: Mapping[str, int],
+        values: Mapping[str, int],
+        request_id: str | None = None,
+    ) -> RegisterWriteResult:
+        widths = {
+            "eax": 8, "ebx": 8, "ecx": 8, "edx": 8,
+            "esi": 8, "edi": 8, "ebp": 8, "esp": 8,
+            "cs": 4, "ds": 4, "es": 4, "fs": 4, "gs": 4, "ss": 4,
+            "instruction_pointer": 8, "flags": 8,
+        }
+        if not isinstance(expected_state_revision, int) or isinstance(expected_state_revision, bool) or expected_state_revision < 0:
+            raise ValueError("expected_state_revision must be a non-negative integer")
+        if not expected or not values or any(name not in expected for name in values):
+            raise ValueError("expected and values must be non-empty and every written register must be guarded")
+        def encode(source: Mapping[str, int]) -> dict[str, str]:
+            result: dict[str, str] = {}
+            for name, value in source.items():
+                width = widths.get(name)
+                if width is None or not isinstance(value, int) or isinstance(value, bool) or value < 0 or value >= 1 << (width * 4):
+                    raise ValueError(f"invalid value for register {name}")
+                result[name] = f"0x{value:0{width}X}"
+            return result
+        response = self.call("state.set_registers", {
+            "session_id": session_id,
+            "expected_state_revision": expected_state_revision,
+            "expected": encode(expected),
+            "set": encode(values),
+        }, request_id)
+        return RegisterWriteResult(
+            before=_registers(_object(response, "before")),
+            after=_registers(_object(response, "after")),
+        )
 
     def send_keyboard(self, session_id: str, events: list[KeyboardEvent] | tuple[KeyboardEvent, ...],
                       request_id: str | None = None) -> InputState:

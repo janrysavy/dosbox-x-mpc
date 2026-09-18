@@ -48,6 +48,7 @@ static const int kErrorBreakpointNotFound = -32015;
 static const int kErrorCommandRejected = -32016;
 static const int kErrorCursorExpired = -32017;
 static const int kErrorCheckpointNotFound = -32018;
+static const int kErrorRegisterPreconditionFailed = -32019;
 static const std::size_t kOutputRingCapacity = 1024;
 static const std::size_t kCompletedResponseCacheByteLimit = 8u * 1024u * 1024u;
 static const std::size_t kVideoSnapshotCacheByteLimit = 16u * 1024u * 1024u;
@@ -247,6 +248,40 @@ static bool ParseFixedWidthHex(const JsonValue& value,
         parsed = (parsed << 4u) | digit;
     }
     *result = parsed;
+    return true;
+}
+
+static bool IsRegisterName(const std::string& name, std::size_t* width)
+{
+    if (name == "cs" || name == "ds" || name == "es" ||
+        name == "fs" || name == "gs" || name == "ss") {
+        *width = 4;
+        return true;
+    }
+    if (name == "eax" || name == "ebx" || name == "ecx" || name == "edx" ||
+        name == "esi" || name == "edi" || name == "ebp" || name == "esp" ||
+        name == "instruction_pointer" || name == "flags") {
+        *width = 8;
+        return true;
+    }
+    return false;
+}
+
+static bool ParseRegisterMap(const JsonValue* encoded,
+                             std::map<std::string, std::uint32_t>* values)
+{
+    if (encoded == NULL || encoded->type != JsonType::Object || encoded->object.empty())
+        return false;
+    values->clear();
+    for (std::map<std::string, JsonValue>::const_iterator it = encoded->object.begin();
+         it != encoded->object.end(); ++it) {
+        std::size_t width = 0;
+        std::uint32_t value = 0;
+        if (!IsRegisterName(it->first, &width) ||
+            !ParseFixedWidthHex(it->second, width, &value))
+            return false;
+        (*values)[it->first] = value;
+    }
     return true;
 }
 
@@ -608,6 +643,7 @@ static bool IsKnownMethod(const std::string& method)
            method == "execution.step" ||
            method == "execution.wait" ||
            method == "state.get_registers" ||
+           method == "state.set_registers" ||
            method == "input.keyboard" ||
            method == "input.joystick" ||
            method == "input.state" ||
@@ -690,6 +726,7 @@ public:
         std::string error;
         MemoryAccessError access_error;
         RegisterSnapshot registers;
+        RegisterWriteResult register_write;
         InputState input_state;
         VideoSnapshot video_snapshot;
         DosMemoryMap dos_memory_map;
@@ -827,6 +864,10 @@ public:
                                     const std::string& workdir,
                                     std::string* error) const = 0;
     virtual bool GetRegisters(RegisterSnapshot* registers, std::string* error) const = 0;
+    virtual bool SetRegistersGuarded(const std::map<std::string, std::uint32_t>& expected,
+                                     const std::map<std::string, std::uint32_t>& values,
+                                     RegisterWriteResult* result,
+                                     std::string* error) const = 0;
     virtual bool ApplyKeyboardInput(const std::vector<KeyboardInputEvent>& events,
                                     InputState* state,
                                     std::string* error) const = 0;
@@ -908,6 +949,7 @@ public:
     AGENT_RUNTIME_FORWARD(Pause, bool Pause(std::string* error) const, (error))
     AGENT_RUNTIME_FORWARD(StartTargetAtEntry, bool StartTargetAtEntry(const std::string& command, const std::vector<std::string>& arguments, const std::string& workdir, std::string* error) const, (command, arguments, workdir, error))
     AGENT_RUNTIME_FORWARD(GetRegisters, bool GetRegisters(RegisterSnapshot* registers, std::string* error) const, (registers, error))
+    AGENT_RUNTIME_FORWARD(SetRegistersGuarded, bool SetRegistersGuarded(const std::map<std::string, std::uint32_t>& expected, const std::map<std::string, std::uint32_t>& values, RegisterWriteResult* result, std::string* error) const, (expected, values, result, error))
     AGENT_RUNTIME_FORWARD(ApplyKeyboardInput, bool ApplyKeyboardInput(const std::vector<KeyboardInputEvent>& events, InputState* state, std::string* error) const, (events, state, error))
     AGENT_RUNTIME_FORWARD(ApplyJoystickInput, bool ApplyJoystickInput(const JoystickInputUpdate& update, InputState* state, std::string* error) const, (update, state, error))
     AGENT_RUNTIME_FORWARD(GetInputState, bool GetInputState(InputState* state, std::string* error) const, (state, error))
@@ -1010,6 +1052,7 @@ public:
         registers->cpu_mode = "real";
         return true;
     }
+    AGENT_RUNTIME_UNAVAILABLE(SetRegistersGuarded, bool SetRegistersGuarded(const std::map<std::string, std::uint32_t>&, const std::map<std::string, std::uint32_t>&, RegisterWriteResult*, std::string* error) const)
     bool CaptureVideoSnapshot(VideoSnapshot* snapshot, std::string* error) const override
     {
         if (snapshot == NULL) {
@@ -2132,6 +2175,13 @@ static std::string Capabilities(const AgentConfig& config)
     Add(&hardware_trace, "emulated_timestamp_ns", JsonValue::Bool(true));
     Add(&hardware_trace, "io_address_requires_normal_core", JsonValue::Bool(true));
     Add(&result, "hardware_trace", hardware_trace);
+    JsonValue register_write = Object();
+    Add(&register_write, "guarded_atomic", JsonValue::Bool(true));
+    Add(&register_write, "requires_stopped_target", JsonValue::Bool(true));
+    Add(&register_write, "requires_expected_state_revision", JsonValue::Bool(true));
+    Add(&register_write, "requires_expected_values", JsonValue::Bool(true));
+    Add(&register_write, "real_mode_only", JsonValue::Bool(true));
+    Add(&result, "register_write", register_write);
     JsonValue execution = Object();
     Add(&execution, "run_until", JsonValue::Bool(true));
     Add(&execution, "run_until_atomic", JsonValue::Bool(true));
@@ -3245,6 +3295,87 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                                      "COMMAND_REJECTED");
                 } else {
                     response = AGENT_MakeJsonRpcResult(parsed.id, RegistersResult(operation->registers, *session));
+                }
+            }
+        }
+    } else if (parsed.method == "state.set_registers") {
+        std::map<std::string, std::uint32_t> expected;
+        std::map<std::string, std::uint32_t> values;
+        std::uint32_t expected_revision = 0;
+        const JsonValue* revision = parsed.params.Find("expected_state_revision");
+        bool valid = revision != NULL && GetUnsignedInteger(*revision, &expected_revision) &&
+                     ParseRegisterMap(parsed.params.Find("expected"), &expected) &&
+                     ParseRegisterMap(parsed.params.Find("set"), &values);
+        if (valid) {
+            for (std::map<std::string, std::uint32_t>::const_iterator it = values.begin();
+                 it != values.end(); ++it) {
+                if (expected.find(it->first) == expected.end()) {
+                    valid = false;
+                    break;
+                }
+            }
+        }
+        if (!valid) {
+            response = InvalidParams(parsed.id,
+                    "state.set_registers requires an expected state revision and non-empty exact-width expected/set maps; every set register must be guarded");
+        } else if (session->state == Impl::SessionState::Running) {
+            response = SessionError(parsed.id, kErrorTargetRunning,
+                    "Target must be stopped before writing registers", "TARGET_RUNNING", session);
+        } else if (session->state != Impl::SessionState::Stopped) {
+            response = SessionError(parsed.id, kErrorCapabilityUnavailable,
+                    "Target must be stopped before writing registers", "TARGET_NOT_STOPPED", session);
+        } else if (session->state_revision != expected_revision) {
+            response = Error(parsed.id, kErrorRegisterPreconditionFailed,
+                    "Expected state revision does not match the live session",
+                    "REGISTER_PRECONDITION_FAILED");
+        } else {
+            const std::shared_ptr<Impl::AdapterOperation> operation(new Impl::AdapterOperation());
+            const std::string session_id = session->id;
+            if (SubmitEmulationCommandLocked(impl, [impl, operation, expected, values](const std::uint64_t) {
+                    std::string error;
+                    RegisterWriteResult result;
+                    const bool success = impl->runtime->SetRegistersGuarded(
+                            expected, values, &result, &error);
+                    std::lock_guard<std::mutex> guard(operation->mutex);
+                    operation->success = success;
+                    operation->error = error;
+                    operation->register_write = result;
+                    operation->done = true;
+                    operation->completed.notify_all();
+                }) == 0) {
+                response = Error(parsed.id, kErrorCommandRejected,
+                        "Emulation-thread bridge is unavailable", "COMMAND_REJECTED");
+            } else {
+                std::unique_lock<std::mutex> operation_lock(operation->mutex);
+                lock.unlock();
+                const bool completed = operation->completed.wait_for(operation_lock,
+                        std::chrono::milliseconds(impl->config.request_timeout_ms),
+                        [operation]() { return operation->done; });
+                lock.lock();
+                if (!RebindSessionAfterWait(impl, session_id, &session, &response, parsed.id))
+                    return response;
+                if (!completed)
+                    response = Error(parsed.id, kErrorOperationTimeout,
+                            "Timed out writing registers", "OPERATION_TIMEOUT");
+                else if (!operation->success && operation->register_write.precondition_failed)
+                    response = Error(parsed.id, kErrorRegisterPreconditionFailed,
+                            "Register precondition mismatch: " +
+                                    operation->register_write.mismatch_register,
+                            "REGISTER_PRECONDITION_FAILED");
+                else if (!operation->success)
+                    response = Error(parsed.id, kErrorCommandRejected,
+                            operation->error.empty() ? "Register write was rejected" : operation->error,
+                            "COMMAND_REJECTED");
+                else {
+                    ++session->state_revision;
+                    JsonValue result = SessionResult(*session);
+                    JsonValue before = RegisterFields(operation->register_write.before);
+                    Add(&before, "state_revision", Number(session->state_revision - 1));
+                    JsonValue after = RegisterFields(operation->register_write.after);
+                    Add(&after, "state_revision", Number(session->state_revision));
+                    Add(&result, "before", before);
+                    Add(&result, "after", after);
+                    response = AGENT_MakeJsonRpcResult(parsed.id, result);
                 }
             }
         }

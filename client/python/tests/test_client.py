@@ -24,6 +24,7 @@ from dosbox_agent import (
     InvalidBinaryLengthError,
     MemoryAddress,
     MemoryPreconditionFailedError,
+    RegisterPreconditionFailedError,
     RequestTooLargeError,
     RunUntilPredicate,
     SessionNotFoundError,
@@ -87,6 +88,7 @@ class AgentClientTests(unittest.TestCase):
             "REQUEST_TOO_LARGE": RequestTooLargeError,
             "INVALID_BINARY_LENGTH": InvalidBinaryLengthError,
             "MEMORY_PRECONDITION_FAILED": MemoryPreconditionFailedError,
+            "REGISTER_PRECONDITION_FAILED": RegisterPreconditionFailedError,
             "ADDRESS_NOT_MAPPED": AddressNotMappedError,
             "BREAKPOINT_NOT_FOUND": BreakpointNotFoundError,
             "CHECKPOINT_NOT_FOUND": CheckpointNotFoundError,
@@ -268,6 +270,13 @@ class AgentClientTests(unittest.TestCase):
                 }], "next_cursor": None}}
             if method == "trace.stop":
                 return {"result": {"session_id": "ses-1", "state_revision": 6, "event_count": 1}}
+            if method == "state.set_registers":
+                before = registers_result(7)
+                after = registers_result(8)
+                before["general"]["eax"] = "0x00000000"
+                after["general"]["eax"] = "0x12345678"
+                return {"result": {"session_id": "ses-1", "state_revision": 8,
+                                   "before": before, "after": after}}
             if method == "hardware.trace.start":
                 return {"result": {"session_id": "ses-1", "state_revision": 6,
                                    "active": True, "capacity": 4}}
@@ -314,6 +323,14 @@ class AgentClientTests(unittest.TestCase):
         self.assertEqual("stopped", stepped.state)
         self.assertEqual("real", stepped_registers.cpu_mode)
         self.assertEqual("0x00000106", client.get_registers(session.id).instruction_pointer)
+        register_write = client.set_registers(
+            session.id, 7, {"eax": 0}, {"eax": 0x12345678}
+        )
+        self.assertEqual(("0x00000000", "0x12345678"),
+                         (register_write.before.general["eax"],
+                          register_write.after.general["eax"]))
+        self.assertEqual((7, 8), (register_write.before.state_revision,
+                                 register_write.after.state_revision))
         video = client.capture_video(session.id)
         self.assertEqual(b"A\x1f", video.text.data)
         self.assertEqual(80, video.text_columns)
@@ -363,7 +380,7 @@ class AgentClientTests(unittest.TestCase):
         self.assertFalse(client.stop_hardware_trace(session.id).active)
         self.assertEqual("op-1", client.pause(session.id).id)
         self.assertEqual("op-1", client.stop(session.id).id)
-        self.assertEqual(35, len(transport.requests))
+        self.assertEqual(36, len(transport.requests))
         self.assertEqual(str(make_config().dosbox_workdir), transport.requests[1]["params"]["mounts"][0]["host_path"])
 
     def test_run_until_predicates_refuse_ambiguous_shapes(self) -> None:

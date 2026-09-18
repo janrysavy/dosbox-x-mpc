@@ -17,6 +17,7 @@ from dosbox_agent import (
     BreakpointHitFilter,
     KeyboardEvent,
     MemoryAddress,
+    RegisterPreconditionFailedError,
     RunUntilPredicate,
 )
 
@@ -73,6 +74,53 @@ def main() -> int:
             f"PSP={dos_map.target.psp} LOAD={dos_map.target.load_segment} "
             f"ENTRY={dos_map.target.entry_segment}:{dos_map.target.entry_offset} "
             f"image={dos_map.target.image_bytes} bytes target_blocks={len(target_blocks)}."
+        )
+
+        entry_registers = client.get_registers(session.id)
+        old_eax = int(entry_registers.general["eax"], 16)
+        old_ebx = int(entry_registers.general["ebx"], 16)
+        new_eax = old_eax ^ 0xA5A55A5A
+        new_ebx = old_ebx ^ 0x5A5AA5A5
+        written_registers = client.set_registers(
+            session.id,
+            entry_registers.state_revision,
+            {"eax": old_eax, "ebx": old_ebx},
+            {"eax": new_eax, "ebx": new_ebx},
+        )
+        if (int(written_registers.before.general["eax"], 16) != old_eax or
+                int(written_registers.before.general["ebx"], 16) != old_ebx or
+                int(written_registers.after.general["eax"], 16) != new_eax or
+                int(written_registers.after.general["ebx"], 16) != new_ebx or
+                written_registers.after.state_revision !=
+                written_registers.before.state_revision + 1):
+            raise AssertionError(f"atomic register write mismatch: {written_registers}")
+        try:
+            client.set_registers(
+                session.id,
+                entry_registers.state_revision,
+                {"eax": new_eax},
+                {"eax": old_eax},
+            )
+            raise AssertionError("stale state revision unexpectedly wrote registers")
+        except RegisterPreconditionFailedError:
+            pass
+        unchanged = client.get_registers(session.id)
+        if (int(unchanged.general["eax"], 16) != new_eax or
+                int(unchanged.general["ebx"], 16) != new_ebx):
+            raise AssertionError("rejected register write partially changed live state")
+        restored_registers = client.set_registers(
+            session.id,
+            unchanged.state_revision,
+            {"eax": new_eax, "ebx": new_ebx},
+            {"eax": old_eax, "ebx": old_ebx},
+        )
+        if (int(restored_registers.after.general["eax"], 16) != old_eax or
+                int(restored_registers.after.general["ebx"], 16) != old_ebx):
+            raise AssertionError("register restoration did not read back exactly")
+        print(
+            "REGISTER-WRITE evidence: EAX and EBX changed atomically with exact "
+            "before/after snapshots; a stale revision was rejected with no partial write; "
+            "both registers then restored exactly."
         )
 
         diagnostic = client.execute_command(session.id, "CPU")

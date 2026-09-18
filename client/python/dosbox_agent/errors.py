@@ -61,6 +61,10 @@ class MemoryPreconditionFailedError(AgentRpcError):
     pass
 
 
+class RegisterPreconditionFailedError(AgentRpcError):
+    pass
+
+
 class AddressNotMappedError(AgentRpcError):
     pass
 
@@ -100,6 +104,7 @@ _ERROR_TYPES: dict[str, type[AgentRpcError]] = {
     "REQUEST_TOO_LARGE": RequestTooLargeError,
     "INVALID_BINARY_LENGTH": InvalidBinaryLengthError,
     "MEMORY_PRECONDITION_FAILED": MemoryPreconditionFailedError,
+    "REGISTER_PRECONDITION_FAILED": RegisterPreconditionFailedError,
     "ADDRESS_NOT_MAPPED": AddressNotMappedError,
     "REQUEST_ID_CONFLICT": RequestIdConflictError,
     "COMMAND_REJECTED": CommandRejectedError,

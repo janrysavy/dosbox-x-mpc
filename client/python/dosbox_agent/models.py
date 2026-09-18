@@ -301,6 +301,12 @@ class RegisterSnapshot:
 
 
 @dataclass(frozen=True)
+class RegisterWriteResult:
+    before: RegisterSnapshot
+    after: RegisterSnapshot
+
+
+@dataclass(frozen=True)
 class KeyboardEvent:
     key: str
     pressed: bool

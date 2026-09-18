@@ -104,6 +104,83 @@ bool ExactWatchpointCoreSupported()
            cpudecoder == &CPU_Core286_Prefetch_Run ||
            cpudecoder == &CPU_Core8086_Prefetch_Run;
 }
+
+bool RegisterValue(const RegisterSnapshot& registers,
+                   const std::string& name,
+                   std::uint32_t* value)
+{
+    if (name == "eax") *value = registers.eax;
+    else if (name == "ebx") *value = registers.ebx;
+    else if (name == "ecx") *value = registers.ecx;
+    else if (name == "edx") *value = registers.edx;
+    else if (name == "esi") *value = registers.esi;
+    else if (name == "edi") *value = registers.edi;
+    else if (name == "ebp") *value = registers.ebp;
+    else if (name == "esp") *value = registers.esp;
+    else if (name == "cs") *value = registers.cs;
+    else if (name == "ds") *value = registers.ds;
+    else if (name == "es") *value = registers.es;
+    else if (name == "fs") *value = registers.fs;
+    else if (name == "gs") *value = registers.gs;
+    else if (name == "ss") *value = registers.ss;
+    else if (name == "instruction_pointer") *value = registers.instruction_pointer;
+    else if (name == "flags") *value = registers.flags;
+    else return false;
+    return true;
+}
+
+bool IsSegmentRegister(const std::string& name)
+{
+    return name == "cs" || name == "ds" || name == "es" ||
+           name == "fs" || name == "gs" || name == "ss";
+}
+
+void ApplyRegisterValues(const std::map<std::string, std::uint32_t>& values)
+{
+    for (std::map<std::string, std::uint32_t>::const_iterator it = values.begin();
+         it != values.end(); ++it) {
+        const std::string& name = it->first;
+        const std::uint32_t value = it->second;
+        if (name == "eax") reg_eax = value;
+        else if (name == "ebx") reg_ebx = value;
+        else if (name == "ecx") reg_ecx = value;
+        else if (name == "edx") reg_edx = value;
+        else if (name == "esi") reg_esi = value;
+        else if (name == "edi") reg_edi = value;
+        else if (name == "ebp") reg_ebp = value;
+        else if (name == "esp") reg_esp = value;
+        else if (name == "cs") SegSet16(cs, static_cast<std::uint16_t>(value));
+        else if (name == "ds") SegSet16(ds, static_cast<std::uint16_t>(value));
+        else if (name == "es") SegSet16(es, static_cast<std::uint16_t>(value));
+        else if (name == "fs") SegSet16(fs, static_cast<std::uint16_t>(value));
+        else if (name == "gs") SegSet16(gs, static_cast<std::uint16_t>(value));
+        else if (name == "ss") SegSet16(ss, static_cast<std::uint16_t>(value));
+        else if (name == "instruction_pointer") reg_eip = value;
+        else if (name == "flags") CPU_SetFlags(value, FMASK_ALL);
+    }
+}
+
+std::map<std::string, std::uint32_t> SnapshotValues(const RegisterSnapshot& snapshot)
+{
+    std::map<std::string, std::uint32_t> values;
+    values["eax"] = snapshot.eax;
+    values["ebx"] = snapshot.ebx;
+    values["ecx"] = snapshot.ecx;
+    values["edx"] = snapshot.edx;
+    values["esi"] = snapshot.esi;
+    values["edi"] = snapshot.edi;
+    values["ebp"] = snapshot.ebp;
+    values["esp"] = snapshot.esp;
+    values["cs"] = snapshot.cs;
+    values["ds"] = snapshot.ds;
+    values["es"] = snapshot.es;
+    values["fs"] = snapshot.fs;
+    values["gs"] = snapshot.gs;
+    values["ss"] = snapshot.ss;
+    values["instruction_pointer"] = snapshot.instruction_pointer;
+    values["flags"] = snapshot.flags;
+    return values;
+}
 #endif
 
 void SetAccessError(MemoryAccessError* access_error,
@@ -468,6 +545,86 @@ bool DebuggerAdapter::GetRegisters(RegisterSnapshot* registers, std::string* err
     registers->cpu_mode = !cpu.pmode ? "real" : ((reg_flags & FLAG_VM) ? "v86" : "protected");
     return true;
 #else
+    return false;
+#endif
+}
+
+bool DebuggerAdapter::SetRegistersGuarded(
+        const std::map<std::string, std::uint32_t>& expected,
+        const std::map<std::string, std::uint32_t>& values,
+        RegisterWriteResult* result,
+        std::string* error) const
+{
+    if (!RequireAvailable(error) || !RequireEmulationThread(error) || result == NULL)
+        return false;
+#if C_DEBUG
+    *result = RegisterWriteResult();
+    if (expected.empty() || values.empty()) {
+        if (error != NULL)
+            *error = "Register expected/set maps must be non-empty";
+        return false;
+    }
+    if (!GetRegisters(&result->before, error))
+        return false;
+    if (result->before.cpu_mode != "real") {
+        if (error != NULL)
+            *error = "Guarded register writes currently require real CPU mode";
+        return false;
+    }
+    for (std::map<std::string, std::uint32_t>::const_iterator it = values.begin();
+         it != values.end(); ++it) {
+        std::uint32_t ignored = 0;
+        if (!RegisterValue(result->before, it->first, &ignored) ||
+            (IsSegmentRegister(it->first) && it->second > 0xffffu)) {
+            if (error != NULL)
+                *error = "Register patch contains an unknown or out-of-range register";
+            return false;
+        }
+        if (expected.find(it->first) == expected.end()) {
+            if (error != NULL)
+                *error = "Every written register requires an expected old value";
+            return false;
+        }
+    }
+    for (std::map<std::string, std::uint32_t>::const_iterator it = expected.begin();
+         it != expected.end(); ++it) {
+        std::uint32_t current = 0;
+        if (!RegisterValue(result->before, it->first, &current) ||
+            (IsSegmentRegister(it->first) && it->second > 0xffffu)) {
+            if (error != NULL)
+                *error = "Register precondition contains an unknown or out-of-range register";
+            return false;
+        }
+        if (current != it->second) {
+            result->precondition_failed = true;
+            result->mismatch_register = it->first;
+            if (error != NULL)
+                *error = "Register precondition did not match live state";
+            return false;
+        }
+    }
+
+    ApplyRegisterValues(values);
+    if (!GetRegisters(&result->after, error)) {
+        ApplyRegisterValues(SnapshotValues(result->before));
+        return false;
+    }
+    for (std::map<std::string, std::uint32_t>::const_iterator it = values.begin();
+         it != values.end(); ++it) {
+        std::uint32_t actual = 0;
+        RegisterValue(result->after, it->first, &actual);
+        if (actual != it->second) {
+            ApplyRegisterValues(SnapshotValues(result->before));
+            (void)GetRegisters(&result->after, error);
+            if (error != NULL)
+                *error = "Register write did not read back exactly and was rolled back";
+            return false;
+        }
+    }
+    return true;
+#else
+    (void)expected;
+    (void)values;
     return false;
 #endif
 }
