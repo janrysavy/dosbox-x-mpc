@@ -42,6 +42,7 @@ from .models import (
     StopReason,
     SnapshotBlock,
     TraceEvent,
+    TraceEffect,
     TracePage,
     VideoFrame,
     VideoSnapshot,
@@ -58,5 +59,5 @@ __all__ = [
     "Operation", "OperationTimeoutError", "OutputPage", "OutputRecord", "RegisterSnapshot",
     "RequestIdConflictError", "RequestTooLargeError", "Session", "SessionBusyError", "SessionNotFoundError",
     "SnapshotBlock", "StopReason", "TargetExitedError", "TargetNotStoppedError", "TargetRunningError", "TraceEvent",
-    "TracePage", "VideoFrame", "VideoSnapshot", "WaitResult", "WatchpointAccess",
+    "TraceEffect", "TracePage", "VideoFrame", "VideoSnapshot", "WaitResult", "WatchpointAccess",
 ]

@@ -54,6 +54,12 @@ static IO_callout_vector IO_callouts[IO_callouts_max];
 #if C_DEBUG
 void DEBUG_EnableDebugger(void);
 #endif
+#if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
+void DEBUG_AgentObserveIoAccess(bool write,
+                                uint16_t port,
+                                uint8_t byte_count,
+                                uint32_t value);
+#endif
 
 static Bitu IO_ReadBlocked(Bitu /*port*/,Bitu /*iolen*/) {
 	return ~0ul;
@@ -499,6 +505,9 @@ void IO_WriteB(Bitu port,uint8_t val) {
 		IO_USEC_write_delay(0);
 		io_writehandlers[0][port](port,val,1);
 	}
+#if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
+	DEBUG_AgentObserveIoAccess(true, static_cast<uint16_t>(port), 1, val);
+#endif
 }
 
 void IO_WriteW(Bitu port,uint16_t val) {
@@ -510,6 +519,9 @@ void IO_WriteW(Bitu port,uint16_t val) {
 		IO_USEC_write_delay(1);
 		io_writehandlers[1][port](port,val,2);
 	}
+#if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
+	DEBUG_AgentObserveIoAccess(true, static_cast<uint16_t>(port), 2, val);
+#endif
 }
 
 void IO_WriteD(Bitu port,uint32_t val) {
@@ -521,44 +533,56 @@ void IO_WriteD(Bitu port,uint32_t val) {
 		IO_USEC_write_delay(2);
 		io_writehandlers[2][port](port,val,4);
 	}
+#if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
+	DEBUG_AgentObserveIoAccess(true, static_cast<uint16_t>(port), 4, val);
+#endif
 }
 
 uint8_t IO_ReadB(Bitu port) {
 	uint8_t retval;
 	if (GCC_UNLIKELY(GETFLAG(VM) && (CPU_IO_Exception(port,1)))) {
-		return (uint8_t)CPU_ForceV86FakeIO_In(port,1);
+		retval = (uint8_t)CPU_ForceV86FakeIO_In(port,1);
 	}
 	else {
 		IO_USEC_read_delay(0);
 		retval = (uint8_t)io_readhandlers[0][port](port,1);
 	}
 	log_io(0, false, port, retval);
+#if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
+	DEBUG_AgentObserveIoAccess(false, static_cast<uint16_t>(port), 1, retval);
+#endif
 	return retval;
 }
 
 uint16_t IO_ReadW(Bitu port) {
 	uint16_t retval;
 	if (GCC_UNLIKELY(GETFLAG(VM) && (CPU_IO_Exception(port,2)))) {
-		return (uint16_t)CPU_ForceV86FakeIO_In(port,2);
+		retval = (uint16_t)CPU_ForceV86FakeIO_In(port,2);
 	}
 	else {
 		IO_USEC_read_delay(1);
 		retval = (uint16_t)io_readhandlers[1][port](port,2);
 	}
 	log_io(1, false, port, retval);
+#if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
+	DEBUG_AgentObserveIoAccess(false, static_cast<uint16_t>(port), 2, retval);
+#endif
 	return retval;
 }
 
 uint32_t IO_ReadD(Bitu port) {
 	uint32_t retval;
 	if (GCC_UNLIKELY(GETFLAG(VM) && (CPU_IO_Exception(port,4)))) {
-		return (uint32_t)CPU_ForceV86FakeIO_In(port,4);
+		retval = (uint32_t)CPU_ForceV86FakeIO_In(port,4);
 	}
 	else {
 		IO_USEC_read_delay(2);
 		retval = (uint32_t)io_readhandlers[2][port](port,4);
 	}
 	log_io(2, false, port, retval);
+#if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
+	DEBUG_AgentObserveIoAccess(false, static_cast<uint16_t>(port), 4, retval);
+#endif
 	return retval;
 }
 

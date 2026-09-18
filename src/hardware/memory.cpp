@@ -1334,15 +1334,15 @@ uint32_t mem_unalignedreadd(LinearPt address) {
 
 
 void mem_unalignedwritew(LinearPt address,uint16_t val) {
-    mem_writeb_inline(address,   (uint8_t)val);val>>=8u;
-    mem_writeb_inline(address+1u,(uint8_t)val);
+    mem_writeb_unobserved_inline(address,   (uint8_t)val);val>>=8u;
+    mem_writeb_unobserved_inline(address+1u,(uint8_t)val);
 }
 
 void mem_unalignedwrited(LinearPt address,uint32_t val) {
-    mem_writeb_inline(address,   (uint8_t)val);val>>=8u;
-    mem_writeb_inline(address+1u,(uint8_t)val);val>>=8u;
-    mem_writeb_inline(address+2u,(uint8_t)val);val>>=8u;
-    mem_writeb_inline(address+3u,(uint8_t)val);
+    mem_writeb_unobserved_inline(address,   (uint8_t)val);val>>=8u;
+    mem_writeb_unobserved_inline(address+1u,(uint8_t)val);val>>=8u;
+    mem_writeb_unobserved_inline(address+2u,(uint8_t)val);val>>=8u;
+    mem_writeb_unobserved_inline(address+3u,(uint8_t)val);
 }
 
 

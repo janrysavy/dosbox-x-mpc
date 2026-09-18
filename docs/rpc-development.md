@@ -452,6 +452,22 @@ RPC id 不得复用 `CBreakpoint` 当前显示列表 index。adapter 必须生�
 
 trace 的数据源必须是 in-process `TraceSink`，在既有 heavy debug 指令日志点采集结构化事件。`LOGCPU.TXT` 可以作为人工对照产物，但不得作为正式 API 的唯一来源，也不得在多个 session 间共享文件名。
 
+An event denotes one complete guest instruction. The event is created at the
+instruction boundary before execution, its ordered `effects` are appended while
+that instruction executes, and a count-limited trace stops at the following
+boundary. An execution breakpoint encountered before an instruction therefore
+does not create an event for code that did not run.
+
+Each event always contains an `effects` array. A `memory_read` effect contains a
+linear `address`, `byte_count`, and `data_base64`; a `memory_write` contains the
+same address and width plus `before_base64` and `after_base64`; `io_read` and
+`io_write` contain `port`, `byte_count`, and the observed `value`. Effects remain
+in execution order. Normal-core opcode and immediate fetches are not data-memory
+effects: the fetch helpers use unobserved memory reads, while operand reads keep
+using the observed helpers. Exact effects are advertised only through
+`trace.memory_io_effects=true` and currently require the normal CPU core, as
+reported by `trace.effects_require_normal_core=true`.
+
 `DebuggerOutputParser` 的规则：
 
 - parser 输入、输出和失败原因必须可单元测试；测试样本存放在 `tests/agent/fixtures/`。
@@ -508,6 +524,13 @@ start:
 - memory.write 向可读写的 fixture data 区写入四字节后，随后 memory.read 的 bytes 和 SHA-256 必须一致。
 
 夹具必须在 runtime 目录的干净副本中运行。验收不得复用上次运行的 `LOGCPU.TXT`、`MEMDUMP.*`、DOSBox-X 配置或 trace 文件。
+
+`agent_trace_effects.com` is the deterministic effect fixture. Its committed
+data word begins at `CS:0113` with `00 00`; six traced instructions must produce,
+in order, a word write `0000 -> 3412`, a word read of `3412`, an 8-bit write to
+port `0080`, and an 8-bit read from that port. Register-only instructions must
+have empty effect arrays. The clean E2E test also verifies that the final I/O
+read value is the value placed in AL at the complete-instruction boundary.
 
 ## 11. 分阶段实施与检查表
 

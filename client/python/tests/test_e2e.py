@@ -89,13 +89,21 @@ def main() -> int:
         trace = client.read_trace(session.id, None, 2)
         if [event.sequence for event in trace.events] != [1, 2]:
             raise AssertionError("trace.read did not return exactly two session-local events")
+        if any(event.effects for event in trace.events):
+            raise AssertionError(f"register-only instructions reported effects: {trace.events}")
+        trace_registers = client.get_registers(session.id)
+        if trace_registers.instruction_pointer != "0x00000106":
+            raise AssertionError(
+                "bounded trace did not execute exactly two complete instructions: "
+                f"{trace_registers.instruction_pointer}"
+            )
         if client.stop_trace(session.id) != 2:
             raise AssertionError("trace.stop did not report two collected events")
 
         breakpoint = client.create_execution_breakpoint(
             session.id,
             session.stop_reason.address.segment,
-            "0x00000106",
+            "0x00000109",
         )
         operation = client.continue_(session.id)
         stopped = client.wait(session.id, operation.id, 10000)
@@ -103,7 +111,7 @@ def main() -> int:
             raise AssertionError("execution.continue did not stop on the created breakpoint")
 
         registers = client.get_registers(session.id)
-        if registers.instruction_pointer != "0x00000106":
+        if registers.instruction_pointer != "0x00000109":
             raise AssertionError(f"unexpected breakpoint instruction pointer: {registers.instruction_pointer}")
 
         code = client.read_memory(session.id, MemoryAddress.segmented(registers.segments["cs"], "0x00000100"), 6)
@@ -130,6 +138,46 @@ def main() -> int:
         exited = client.wait(session.id, stop.id, 10000)
         if exited.running or exited.session.state != "exited" or exited.session.stop_reason is None or exited.session.stop_reason.kind != "session_stop":
             raise AssertionError("session.stop did not report controller termination")
+
+        session = client.start("AGFX.COM")
+        session_id = session.id
+        if not client.start_trace(session.id, "normal", 6):
+            raise AssertionError("effect trace did not activate")
+        operation = client.continue_(session.id)
+        stopped = client.wait(session.id, operation.id, 10000)
+        if stopped.running or stopped.session.state != "stopped":
+            raise AssertionError("effect trace did not complete at a stopped boundary")
+        effect_trace = client.read_trace(session.id, None, 6)
+        if len(effect_trace.events) != 6:
+            raise AssertionError(f"effect trace returned {len(effect_trace.events)} events")
+        effect_kinds = [effect.kind for event in effect_trace.events for effect in event.effects]
+        if effect_kinds != ["memory_write", "memory_read", "io_write", "io_read"]:
+            raise AssertionError(f"effect order mismatch: {effect_kinds}")
+        write_effect = effect_trace.events[1].effects[0]
+        read_effect = effect_trace.events[2].effects[0]
+        io_write = effect_trace.events[4].effects[0]
+        io_read = effect_trace.events[5].effects[0]
+        expected_linear = (int(session.stop_reason.address.segment, 16) << 4) + 0x0113
+        if (write_effect.address is None or int(write_effect.address.offset, 16) != expected_linear or
+                write_effect.before != b"\x00\x00" or write_effect.after != b"\x34\x12"):
+            raise AssertionError(f"memory-write trace evidence mismatch: {write_effect}")
+        if (read_effect.address != write_effect.address or read_effect.data != b"\x34\x12"):
+            raise AssertionError(f"memory-read trace evidence mismatch: {read_effect}")
+        if io_write.port != "0x0080" or io_write.value != "0x00000034":
+            raise AssertionError(f"I/O-write trace evidence mismatch: {io_write}")
+        if io_read.port != "0x0080" or io_read.value is None:
+            raise AssertionError(f"I/O-read trace evidence mismatch: {io_read}")
+        effect_registers = client.get_registers(session.id)
+        if (effect_registers.instruction_pointer != "0x0000010E" or
+                int(effect_registers.general["eax"], 16) & 0xFF != int(io_read.value, 16) & 0xFF):
+            raise AssertionError(
+                f"I/O-read value did not become AL at the complete trace boundary: "
+                f"registers={effect_registers} effect={io_read}"
+            )
+        if client.stop_trace(session.id) != 6:
+            raise AssertionError("effect trace stop did not report six complete instructions")
+        operation = client.stop(session.id)
+        client.wait(session.id, operation.id, 10000)
 
         session = client.start("AGENTFIX.COM")
         session_id = session.id

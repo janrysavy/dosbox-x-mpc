@@ -34,6 +34,7 @@ from .models import (
     StopReason,
     SnapshotBlock,
     TraceEvent,
+    TraceEffect,
     TracePage,
     VideoFrame,
     VideoSnapshot,
@@ -559,9 +560,18 @@ class AgentClient:
         for value in values:
             entry = _object_value(value, "trace event")
             changes = _object(entry, "register_changes")
+            raw_effects = entry.get("effects")
+            if not isinstance(raw_effects, list):
+                raise AgentProtocolError("trace event effects must be an array")
+            try:
+                effects = tuple(TraceEffect.from_rpc(_object_value(effect, "trace effect"))
+                                for effect in raw_effects)
+            except ValueError as error:
+                raise AgentProtocolError(str(error)) from error
             events.append(TraceEvent(
                 _integer(entry, "sequence"), MemoryAddress.from_rpc(_object(entry, "address")),
                 _string(entry, "instruction"), {str(name): _string(changes, str(name)) for name in changes},
+                effects,
             ))
         return TracePage(result["active"], tuple(events), _optional_string(result.get("next_cursor"), "next_cursor"))
 

@@ -1395,6 +1395,33 @@ static JsonValue TraceEventResult(const TraceEvent& event, const std::string& de
         Add(&changes, change->name.c_str(), String(change->value));
     }
     Add(&result, "register_changes", changes);
+    JsonValue effects = JsonValue::Array();
+    for (std::vector<TraceEffect>::const_iterator effect = event.sample.effects.begin();
+         effect != event.sample.effects.end(); ++effect) {
+        JsonValue encoded = Object();
+        const bool memory = effect->kind == TraceEffectKind::MemoryRead ||
+                            effect->kind == TraceEffectKind::MemoryWrite;
+        const bool write = effect->kind == TraceEffectKind::MemoryWrite ||
+                           effect->kind == TraceEffectKind::IoWrite;
+        Add(&encoded, "kind", String(memory ?
+                (write ? "memory_write" : "memory_read") :
+                (write ? "io_write" : "io_read")));
+        Add(&encoded, "byte_count", Number(effect->byte_count));
+        if (memory) {
+            Add(&encoded, "address", EncodeMemoryAddress(effect->address));
+            if (write) {
+                Add(&encoded, "before_base64", String(EncodeBase64(effect->before)));
+                Add(&encoded, "after_base64", String(EncodeBase64(effect->after)));
+            } else {
+                Add(&encoded, "data_base64", String(EncodeBase64(effect->after)));
+            }
+        } else {
+            Add(&encoded, "port", String(Hex16(effect->port)));
+            Add(&encoded, "value", String(Hex32(effect->value)));
+        }
+        effects.array.push_back(encoded);
+    }
+    Add(&result, "effects", effects);
     return result;
 }
 
@@ -1679,8 +1706,12 @@ static std::string Capabilities(const AgentConfig& config)
     JsonValue trace = Object();
 #ifdef C_HEAVY_DEBUG
     Add(&trace, "cpu", JsonValue::Bool(true));
+    Add(&trace, "memory_io_effects", JsonValue::Bool(true));
+    Add(&trace, "effects_require_normal_core", JsonValue::Bool(true));
 #else
     Add(&trace, "cpu", JsonValue::Bool(false));
+    Add(&trace, "memory_io_effects", JsonValue::Bool(false));
+    Add(&trace, "effects_require_normal_core", JsonValue::Bool(true));
 #endif
     Add(&result, "trace", trace);
     JsonValue video = Object();

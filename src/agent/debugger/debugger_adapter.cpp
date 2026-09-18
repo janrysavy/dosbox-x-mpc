@@ -1013,6 +1013,37 @@ bool DebuggerAdapter::ReadTrace(std::vector<TraceSample>* samples,
         sample.registers.cpu_mode = !cpu.pmode ? "real" : ((reg_flags & FLAG_VM) ? "v86" : "protected");
         sample.instruction = Trim(it->instruction);
         sample.analysis = Trim(it->analysis);
+        sample.effects.reserve(it->effects.size());
+        for (std::vector<DEBUG_AgentTraceEffect>::const_iterator effect = it->effects.begin();
+             effect != it->effects.end(); ++effect) {
+            TraceEffect converted;
+            switch (effect->kind) {
+            case DEBUG_AgentTraceEffectKind::MemoryRead:
+                converted.kind = TraceEffectKind::MemoryRead;
+                break;
+            case DEBUG_AgentTraceEffectKind::MemoryWrite:
+                converted.kind = TraceEffectKind::MemoryWrite;
+                break;
+            case DEBUG_AgentTraceEffectKind::IoRead:
+                converted.kind = TraceEffectKind::IoRead;
+                break;
+            case DEBUG_AgentTraceEffectKind::IoWrite:
+                converted.kind = TraceEffectKind::IoWrite;
+                break;
+            }
+            converted.byte_count = effect->byte_count;
+            if (converted.kind == TraceEffectKind::MemoryRead ||
+                converted.kind == TraceEffectKind::MemoryWrite) {
+                converted.address.space = MemorySpace::Linear;
+                converted.address.offset = effect->address;
+                converted.before.assign(effect->before, effect->before + effect->byte_count);
+                converted.after.assign(effect->after, effect->after + effect->byte_count);
+            } else {
+                converted.port = static_cast<std::uint16_t>(effect->address);
+                converted.value = effect->value;
+            }
+            sample.effects.push_back(converted);
+        }
         samples->push_back(sample);
     }
     *active = DEBUG_AgentTraceIsActive();

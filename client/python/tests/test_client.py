@@ -223,7 +223,21 @@ class AgentClientTests(unittest.TestCase):
             if method == "trace.start":
                 return {"result": {"session_id": "ses-1", "state_revision": 6, "active": True}}
             if method == "trace.read":
-                return {"result": {"session_id": "ses-1", "state_revision": 6, "active": False, "events": [{"sequence": 1, "address": address, "instruction": "MOV AX,1234", "register_changes": {"eax": "0x00001234"}}], "next_cursor": None}}
+                return {"result": {"session_id": "ses-1", "state_revision": 6, "active": False, "events": [{
+                    "sequence": 1, "address": address, "instruction": "MOV AX,1234",
+                    "register_changes": {"eax": "0x00001234"},
+                    "effects": [
+                        {"kind": "memory_read", "byte_count": 1,
+                         "address": {"space": "linear", "offset": "0x00008120"},
+                         "data_base64": base64.b64encode(b"A").decode("ascii")},
+                        {"kind": "io_write", "byte_count": 1,
+                         "port": "0x0080", "value": "0x00000034"},
+                        {"kind": "memory_write", "byte_count": 2,
+                         "address": {"space": "linear", "offset": "0x00008121"},
+                         "before_base64": base64.b64encode(b"\x00\x00").decode("ascii"),
+                         "after_base64": base64.b64encode(b"CB").decode("ascii")},
+                    ],
+                }], "next_cursor": None}}
             if method == "trace.stop":
                 return {"result": {"session_id": "ses-1", "state_revision": 6, "event_count": 1}}
             self.fail(f"unexpected method {method}")
@@ -257,7 +271,15 @@ class AgentClientTests(unittest.TestCase):
         self.assertEqual("CPU", client.read_output(session.id, None, 1).records[0].message)
         self.assertTrue(client.execute_command(session.id, "CPU").accepted)
         self.assertTrue(client.start_trace(session.id, "normal", 1))
-        self.assertEqual("MOV AX,1234", client.read_trace(session.id, None, 1).events[0].instruction)
+        trace_event = client.read_trace(session.id, None, 1).events[0]
+        self.assertEqual("MOV AX,1234", trace_event.instruction)
+        self.assertEqual(("memory_read", "io_write", "memory_write"),
+                         tuple(effect.kind for effect in trace_event.effects))
+        self.assertEqual(b"A", trace_event.effects[0].data)
+        self.assertEqual("0x0080", trace_event.effects[1].port)
+        self.assertEqual("0x00000034", trace_event.effects[1].value)
+        self.assertEqual(b"\x00\x00", trace_event.effects[2].before)
+        self.assertEqual(b"CB", trace_event.effects[2].after)
         self.assertEqual(1, client.stop_trace(session.id))
         self.assertEqual("op-1", client.pause(session.id).id)
         self.assertEqual("op-1", client.stop(session.id).id)

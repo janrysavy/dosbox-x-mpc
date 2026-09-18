@@ -486,11 +486,63 @@ class OutputPage:
 
 
 @dataclass(frozen=True)
+class TraceEffect:
+    kind: str
+    byte_count: int
+    address: MemoryAddress | None = None
+    port: str | None = None
+    data: bytes | None = None
+    before: bytes | None = None
+    after: bytes | None = None
+    value: str | None = None
+
+    @classmethod
+    def from_rpc(cls, value: Mapping[str, Any]) -> "TraceEffect":
+        kind = _string(value.get("kind"), "trace.effect.kind")
+        byte_count = _integer(value.get("byte_count"), "trace.effect.byte_count")
+        if byte_count not in (1, 2, 4):
+            raise ValueError("trace.effect.byte_count must be 1, 2, or 4")
+        if kind == "memory_read":
+            try:
+                data = base64.b64decode(
+                    _string(value.get("data_base64"), "trace.effect.data_base64"), validate=True
+                )
+            except (binascii.Error, ValueError) as error:
+                raise ValueError("trace.effect.data_base64 is invalid") from error
+            if len(data) != byte_count:
+                raise ValueError("trace.effect.data_base64 length does not match byte_count")
+            return cls(kind, byte_count,
+                       address=MemoryAddress.from_rpc(_mapping(value.get("address"), "trace.effect.address")),
+                       data=data)
+        if kind == "memory_write":
+            try:
+                before = base64.b64decode(
+                    _string(value.get("before_base64"), "trace.effect.before_base64"), validate=True
+                )
+                after = base64.b64decode(
+                    _string(value.get("after_base64"), "trace.effect.after_base64"), validate=True
+                )
+            except (binascii.Error, ValueError) as error:
+                raise ValueError("trace.effect write bytes are invalid") from error
+            if len(before) != byte_count or len(after) != byte_count:
+                raise ValueError("trace.effect write byte length does not match byte_count")
+            return cls(kind, byte_count,
+                       address=MemoryAddress.from_rpc(_mapping(value.get("address"), "trace.effect.address")),
+                       before=before, after=after)
+        if kind in ("io_read", "io_write"):
+            return cls(kind, byte_count,
+                       port=_string(value.get("port"), "trace.effect.port"),
+                       value=_string(value.get("value"), "trace.effect.value"))
+        raise ValueError(f"unsupported trace effect kind: {kind}")
+
+
+@dataclass(frozen=True)
 class TraceEvent:
     sequence: int
     address: MemoryAddress
     instruction: str
     register_changes: Mapping[str, str]
+    effects: tuple[TraceEffect, ...]
 
 
 @dataclass(frozen=True)

@@ -724,12 +724,14 @@ private:
 	static CBreakpoint*	lastTriggered;
 #if C_HEAVY_DEBUG
 	friend bool DEBUG_HeavyIsBreakpoint(void);
-	friend void DEBUG_AgentObserveMemoryAccess(bool, LinearPt, uint8_t, uint32_t);
 #endif
 };
 
 #if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
 bool debug_agent_memory_watch_active = false;
+static bool agent_trace_active = false;
+static uint32_t agent_trace_remaining = 0;
+static vector<DEBUG_AgentTraceEvent> agent_trace_events;
 static bool agent_watch_instruction_active = false;
 static bool agent_watch_suppress = false;
 static bool agent_watch_pending = false;
@@ -953,7 +955,7 @@ CBreakpoint* CBreakpoint::MatchMemoryAccess(bool write,
 void CBreakpoint::RefreshAgentMemoryWatch(void)
 {
 #if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
-	debug_agent_memory_watch_active = false;
+	debug_agent_memory_watch_active = agent_trace_active;
 	for (std::list<CBreakpoint*>::iterator it = BPoints.begin(); it != BPoints.end(); ++it) {
 		if ((*it)->GetType() == BKPNT_MEMORY_ACCESS) {
 			debug_agent_memory_watch_active = true;
@@ -1492,13 +1494,33 @@ bool DEBUG_AgentConsumeWatchpointHit(DEBUG_AgentWatchpointHit* hit)
 }
 
 #if C_HEAVY_DEBUG
-void DEBUG_AgentObserveMemoryAccess(bool write,
-                                    LinearPt address,
-                                    uint8_t byte_count,
-                                    uint32_t value)
+static void DEBUG_AgentAppendMemoryTraceEffect(const bool write,
+                                               const LinearPt address,
+                                               const uint8_t byte_count,
+                                               const uint32_t before,
+                                               const uint32_t after)
 {
-	if (!agent_watch_instruction_active || agent_watch_suppress ||
-	    agent_watch_pending || byte_count == 0 || byte_count > 4)
+	if (!agent_trace_active || agent_trace_events.empty())
+		return;
+	DEBUG_AgentTraceEffect effect;
+	effect.kind = write ? DEBUG_AgentTraceEffectKind::MemoryWrite :
+	                      DEBUG_AgentTraceEffectKind::MemoryRead;
+	effect.address = static_cast<uint32_t>(address);
+	effect.byte_count = byte_count;
+	for (uint8_t index = 0; index < byte_count; ++index) {
+		effect.before[index] = static_cast<uint8_t>(before >> (index * 8u));
+		effect.after[index] = static_cast<uint8_t>(after >> (index * 8u));
+	}
+	agent_trace_events.back().effects.push_back(effect);
+}
+
+static void DEBUG_AgentMatchMemoryWatchpoint(const bool write,
+                                             const LinearPt address,
+                                             const uint8_t byte_count,
+                                             const uint32_t before,
+                                             const uint32_t after)
+{
+	if (agent_watch_pending)
 		return;
 	CBreakpoint* breakpoint = CBreakpoint::MatchMemoryAccess(
 	        write, static_cast<uint32_t>(address), byte_count);
@@ -1513,25 +1535,73 @@ void DEBUG_AgentObserveMemoryAccess(bool write,
 	hit.instruction_cs = agent_watch_instruction_cs;
 	hit.instruction_ip = agent_watch_instruction_ip;
 	for (uint8_t index = 0; index < byte_count; ++index) {
-		const uint8_t accessed = static_cast<uint8_t>(value >> (index * 8u));
-		if (write) {
-			uint8_t before = 0;
-			agent_watch_suppress = true;
-			const bool failed = mem_readb_checked(address + index, &before);
-			agent_watch_suppress = false;
-			if (failed)
-				return;
-			hit.before[index] = before;
-			hit.after[index] = accessed;
-		} else {
-			hit.before[index] = accessed;
-			hit.after[index] = accessed;
-		}
+		hit.before[index] = static_cast<uint8_t>(before >> (index * 8u));
+		hit.after[index] = static_cast<uint8_t>(after >> (index * 8u));
 	}
 	agent_watch_hit = hit;
 	agent_watch_breakpoint = breakpoint;
 	agent_watch_pending = true;
-	agent_watch_instruction_active = false;
+}
+
+void DEBUG_AgentObserveMemoryRead(const LinearPt address,
+                                  const uint8_t byte_count,
+                                  const uint32_t value)
+{
+	if (!agent_watch_instruction_active || agent_watch_suppress ||
+	    byte_count == 0 || byte_count > 4)
+		return;
+	DEBUG_AgentAppendMemoryTraceEffect(false, address, byte_count, value, value);
+	DEBUG_AgentMatchMemoryWatchpoint(false, address, byte_count, value, value);
+}
+
+bool DEBUG_AgentPrepareMemoryWrite(const LinearPt address,
+                                   const uint8_t byte_count,
+                                   uint32_t* before)
+{
+	if (!agent_watch_instruction_active || agent_watch_suppress || before == nullptr ||
+	    byte_count == 0 || byte_count > 4)
+		return false;
+	*before = 0;
+	agent_watch_suppress = true;
+	for (uint8_t index = 0; index < byte_count; ++index) {
+		uint8_t value = 0;
+		if (mem_readb_checked(address + index, &value)) {
+			agent_watch_suppress = false;
+			return false;
+		}
+		*before |= static_cast<uint32_t>(value) << (index * 8u);
+	}
+	agent_watch_suppress = false;
+	return true;
+}
+
+void DEBUG_AgentCommitMemoryWrite(const LinearPt address,
+                                  const uint8_t byte_count,
+                                  const uint32_t before,
+                                  const uint32_t after)
+{
+	if (!agent_watch_instruction_active || agent_watch_suppress ||
+	    byte_count == 0 || byte_count > 4)
+		return;
+	DEBUG_AgentAppendMemoryTraceEffect(true, address, byte_count, before, after);
+	DEBUG_AgentMatchMemoryWatchpoint(true, address, byte_count, before, after);
+}
+
+void DEBUG_AgentObserveIoAccess(const bool write,
+                                const uint16_t port,
+                                const uint8_t byte_count,
+                                const uint32_t value)
+{
+	if (!agent_watch_instruction_active || !agent_trace_active ||
+	    agent_trace_events.empty() || byte_count == 0 || byte_count > 4)
+		return;
+	DEBUG_AgentTraceEffect effect;
+	effect.kind = write ? DEBUG_AgentTraceEffectKind::IoWrite :
+	                      DEBUG_AgentTraceEffectKind::IoRead;
+	effect.address = port;
+	effect.byte_count = byte_count;
+	effect.value = value;
+	agent_trace_events.back().effects.push_back(effect);
 }
 #endif
 
@@ -6834,11 +6904,6 @@ struct TLogInst {
 };
 
 TLogInst logInst[LOGCPUMAX];
-#if defined(C_DOSBOX_AGENT)
-static bool agent_trace_active = false;
-static uint32_t agent_trace_remaining = 0;
-#endif
-static vector<DEBUG_AgentTraceEvent> agent_trace_events;
 
 void DEBUG_HeavyLogInstruction(void) {
 
@@ -6901,6 +6966,7 @@ bool DEBUG_AgentStartTrace(const uint32_t instruction_count)
 	agent_trace_events.reserve(instruction_count);
 	agent_trace_remaining = instruction_count;
 	agent_trace_active = true;
+	CBreakpoint::RefreshAgentMemoryWatch();
 	return true;
 }
 
@@ -6910,6 +6976,7 @@ bool DEBUG_AgentStopTrace(uint32_t* event_count)
 		return false;
 	agent_trace_active = false;
 	agent_trace_remaining = 0;
+	CBreakpoint::RefreshAgentMemoryWatch();
 	*event_count = static_cast<uint32_t>(agent_trace_events.size());
 	return true;
 }
@@ -7009,16 +7076,18 @@ bool DEBUG_HeavyIsBreakpoint(void) {
 			delete breakpoint;
 			CBreakpoint::RefreshAgentMemoryWatch();
 		}
+		if (agent_trace_active && agent_trace_remaining == 0) {
+			agent_trace_active = false;
+			CBreakpoint::RefreshAgentMemoryWatch();
+		}
 		return true;
 	}
 	const bool agent_trace_was_active = agent_trace_active;
-    if (agent_trace_active) {
-		DEBUG_AgentCaptureTraceEvent();
-		if (--agent_trace_remaining == 0) {
-			agent_trace_active = false;
-			DEBUG_EnableDebugger();
-			return true;
-		}
+	if (agent_trace_active && agent_trace_remaining == 0) {
+		agent_trace_active = false;
+		CBreakpoint::RefreshAgentMemoryWatch();
+		DEBUG_EnableDebugger();
+		return true;
 	}
 #endif
 	if (cpuLog) {
@@ -7053,6 +7122,10 @@ bool DEBUG_HeavyIsBreakpoint(void) {
 
 	if (skipFirstInstruction) {
 		skipFirstInstruction = false;
+		if (agent_trace_active) {
+			DEBUG_AgentCaptureTraceEvent();
+			--agent_trace_remaining;
+		}
 		agent_watch_instruction_cs = SegValue(cs);
 		agent_watch_instruction_ip = reg_eip;
 		agent_watch_instruction_active = true;
@@ -7060,6 +7133,10 @@ bool DEBUG_HeavyIsBreakpoint(void) {
 	}
 	if (!CBreakpoint::BPoints.empty() && CBreakpoint::CheckBreakpoint(SegValue(cs),reg_eip)) {
 		return true;
+	}
+	if (agent_trace_active) {
+		DEBUG_AgentCaptureTraceEvent();
+		--agent_trace_remaining;
 	}
 	agent_watch_instruction_cs = SegValue(cs);
 	agent_watch_instruction_ip = reg_eip;

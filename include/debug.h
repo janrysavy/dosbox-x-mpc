@@ -94,6 +94,22 @@ void DEBUG_AgentClearLastBreakpoint(void);
 bool DEBUG_AgentBeginOutputCapture(void);
 std::string DEBUG_AgentEndOutputCapture(void);
 #if C_HEAVY_DEBUG
+enum class DEBUG_AgentTraceEffectKind {
+    MemoryRead,
+    MemoryWrite,
+    IoRead,
+    IoWrite
+};
+
+struct DEBUG_AgentTraceEffect {
+    DEBUG_AgentTraceEffectKind kind = DEBUG_AgentTraceEffectKind::MemoryRead;
+    uint32_t address = 0;
+    uint8_t byte_count = 0;
+    uint8_t before[4] = {};
+    uint8_t after[4] = {};
+    uint32_t value = 0;
+};
+
 struct DEBUG_AgentTraceEvent {
     uint16_t cs = 0;
     uint32_t instruction_pointer = 0;
@@ -113,11 +129,16 @@ struct DEBUG_AgentTraceEvent {
     uint32_t flags = 0;
     std::string instruction;
     std::string analysis;
+    std::vector<DEBUG_AgentTraceEffect> effects;
 };
 bool DEBUG_AgentStartTrace(uint32_t instruction_count);
 bool DEBUG_AgentStopTrace(uint32_t* event_count);
 bool DEBUG_AgentTraceIsActive(void);
 void DEBUG_AgentCopyTraceEvents(std::vector<DEBUG_AgentTraceEvent>* events);
+void DEBUG_AgentObserveIoAccess(bool write,
+                                uint16_t port,
+                                uint8_t byte_count,
+                                uint32_t value);
 #endif
 #endif
 

@@ -440,10 +440,16 @@ static INLINE PhysPt64 PAGING_GetPhysicalAddress64(const LinearPt linAddr) {
 
 #if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
 extern bool debug_agent_memory_watch_active;
-void DEBUG_AgentObserveMemoryAccess(bool write,
-                                    LinearPt address,
-                                    uint8_t byte_count,
-                                    uint32_t value);
+void DEBUG_AgentObserveMemoryRead(LinearPt address,
+                                  uint8_t byte_count,
+                                  uint32_t value);
+bool DEBUG_AgentPrepareMemoryWrite(LinearPt address,
+                                   uint8_t byte_count,
+                                   uint32_t* before);
+void DEBUG_AgentCommitMemoryWrite(LinearPt address,
+                                  uint8_t byte_count,
+                                  uint32_t before,
+                                  uint32_t after);
 #endif
 
 // Composite reads use this for their page-split pieces, then emit one observer
@@ -454,75 +460,102 @@ static INLINE uint8_t mem_readb_unobserved_inline(const LinearPt address) {
 	       (uint8_t)(get_tlb_readhandler(address))->readb(address);
 }
 
+static INLINE uint16_t mem_readw_unobserved_inline(const LinearPt address) {
+	if ((address & 0xfff)<0xfff) {
+		const HostPt tlb_addr=get_tlb_read(address);
+		return tlb_addr ? host_readw(tlb_addr+address) :
+		       (uint16_t)(get_tlb_readhandler(address))->readw(address);
+	}
+	return mem_unalignedreadw(address);
+}
+
+static INLINE uint32_t mem_readd_unobserved_inline(const LinearPt address) {
+	if ((address & 0xfff)<0xffd) {
+		const HostPt tlb_addr=get_tlb_read(address);
+		return tlb_addr ? host_readd(tlb_addr+address) :
+		       (uint32_t)(get_tlb_readhandler(address))->readd(address);
+	}
+	return mem_unalignedreadd(address);
+}
+
 static INLINE uint8_t mem_readb_inline(const LinearPt address) {
 	const uint8_t value = mem_readb_unobserved_inline(address);
 #if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
 	if (debug_agent_memory_watch_active)
-		DEBUG_AgentObserveMemoryAccess(false, address, 1, value);
+		DEBUG_AgentObserveMemoryRead(address, 1, value);
 #endif
 	return value;
 }
 
 static INLINE uint16_t mem_readw_inline(const LinearPt address) {
-	uint16_t value = 0;
-	if ((address & 0xfff)<0xfff) {
-		const HostPt tlb_addr=get_tlb_read(address);
-		value = tlb_addr ? host_readw(tlb_addr+address) :
-		        (uint16_t)(get_tlb_readhandler(address))->readw(address);
-	} else value = mem_unalignedreadw(address);
+	const uint16_t value = mem_readw_unobserved_inline(address);
 #if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
 	if (debug_agent_memory_watch_active)
-		DEBUG_AgentObserveMemoryAccess(false, address, 2, value);
+		DEBUG_AgentObserveMemoryRead(address, 2, value);
 #endif
 	return value;
 }
 
 static INLINE uint32_t mem_readd_inline(const LinearPt address) {
-	uint32_t value = 0;
-	if ((address & 0xfff)<0xffd) {
-		const HostPt tlb_addr=get_tlb_read(address);
-		value = tlb_addr ? host_readd(tlb_addr+address) :
-		        (uint32_t)(get_tlb_readhandler(address))->readd(address);
-	} else value = mem_unalignedreadd(address);
+	const uint32_t value = mem_readd_unobserved_inline(address);
 #if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
 	if (debug_agent_memory_watch_active)
-		DEBUG_AgentObserveMemoryAccess(false, address, 4, value);
+		DEBUG_AgentObserveMemoryRead(address, 4, value);
 #endif
 	return value;
 }
 
-static INLINE void mem_writeb_inline(const LinearPt address,const uint8_t val) {
-#if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
-	if (debug_agent_memory_watch_active)
-		DEBUG_AgentObserveMemoryAccess(true, address, 1, val);
-#endif
+static INLINE void mem_writeb_unobserved_inline(const LinearPt address,const uint8_t val) {
 	const HostPt tlb_addr=get_tlb_write(address);
 	if (tlb_addr) host_writeb(tlb_addr+address,val);
 	else (get_tlb_writehandler(address))->writeb(address,val);
 }
 
+static INLINE void mem_writeb_inline(const LinearPt address,const uint8_t val) {
+#if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
+	uint32_t before = 0;
+	const bool observe = debug_agent_memory_watch_active &&
+	        DEBUG_AgentPrepareMemoryWrite(address, 1, &before);
+#endif
+	mem_writeb_unobserved_inline(address,val);
+#if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
+	if (observe)
+		DEBUG_AgentCommitMemoryWrite(address, 1, before, val);
+#endif
+}
+
 static INLINE void mem_writew_inline(const LinearPt address,const uint16_t val) {
 #if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
-	if (debug_agent_memory_watch_active)
-		DEBUG_AgentObserveMemoryAccess(true, address, 2, val);
+	uint32_t before = 0;
+	const bool observe = debug_agent_memory_watch_active &&
+	        DEBUG_AgentPrepareMemoryWrite(address, 2, &before);
 #endif
 	if ((address & 0xfffu)<0xfffu) {
 		const HostPt tlb_addr=get_tlb_write(address);
 		if (tlb_addr) host_writew(tlb_addr+address,val);
 		else (get_tlb_writehandler(address))->writew(address,val);
 	} else mem_unalignedwritew(address,val);
+#if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
+	if (observe)
+		DEBUG_AgentCommitMemoryWrite(address, 2, before, val);
+#endif
 }
 
 static INLINE void mem_writed_inline(const LinearPt address,const uint32_t val) {
 #if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
-	if (debug_agent_memory_watch_active)
-		DEBUG_AgentObserveMemoryAccess(true, address, 4, val);
+	uint32_t before = 0;
+	const bool observe = debug_agent_memory_watch_active &&
+	        DEBUG_AgentPrepareMemoryWrite(address, 4, &before);
 #endif
 	if ((address & 0xfffu)<0xffdu) {
 		const HostPt tlb_addr=get_tlb_write(address);
 		if (tlb_addr) host_writed(tlb_addr+address,val);
 		else (get_tlb_writehandler(address))->writed(address,val);
 	} else mem_unalignedwrited(address,val);
+#if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
+	if (observe)
+		DEBUG_AgentCommitMemoryWrite(address, 4, before, val);
+#endif
 }
 
 

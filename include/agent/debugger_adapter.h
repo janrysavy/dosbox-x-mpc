@@ -49,11 +49,29 @@ struct RegisterSnapshot {
     std::string cpu_mode;
 };
 
+enum class TraceEffectKind {
+    MemoryRead,
+    MemoryWrite,
+    IoRead,
+    IoWrite
+};
+
+struct TraceEffect {
+    TraceEffectKind kind = TraceEffectKind::MemoryRead;
+    MemoryAddress address;
+    std::uint16_t port = 0;
+    std::uint8_t byte_count = 0;
+    std::vector<std::uint8_t> before;
+    std::vector<std::uint8_t> after;
+    std::uint32_t value = 0;
+};
+
 struct TraceSample {
     MemoryAddress address;
     RegisterSnapshot registers;
     std::string instruction;
     std::string analysis;
+    std::vector<TraceEffect> effects;
 };
 
 struct VideoSnapshot {

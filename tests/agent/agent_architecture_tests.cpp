@@ -2,6 +2,7 @@
 #include "agent/agent_bridge.h"
 #include "agent/agent_protocol.h"
 #include "agent/agent_server.h"
+#include "agent/trace_store.h"
 
 #include <gtest/gtest.h>
 
@@ -168,6 +169,7 @@ TEST(AgentProtocol, ReportsBuildCapabilitiesAndLimits)
     EXPECT_NE(std::string::npos, response.find("\"debugger\":true"));
 #ifdef C_HEAVY_DEBUG
     EXPECT_NE(std::string::npos, response.find("\"cpu\":true"));
+    EXPECT_NE(std::string::npos, response.find("\"memory_io_effects\":true"));
     EXPECT_NE(std::string::npos, response.find("\"memory_read\":true"));
     EXPECT_NE(std::string::npos, response.find("\"memory_write\":true"));
     EXPECT_NE(std::string::npos, response.find("\"memory_access\":true"));
@@ -189,6 +191,50 @@ TEST(AgentProtocol, ReportsBuildCapabilitiesAndLimits)
     EXPECT_NE(std::string::npos, response.find("\"interrupt_phase\":\"before_handler\""));
     EXPECT_NE(std::string::npos, response.find("\"conditional_kinds\":[\"execution\",\"interrupt\"]"));
     EXPECT_NE(std::string::npos, response.find("\"hit_filter\":true"));
+}
+
+TEST(AgentTrace, PreservesOrderedTypedEffectsThroughPaging)
+{
+    dosbox_agent::TraceStore trace(4);
+    trace.Begin("normal");
+    dosbox_agent::TraceSample sample;
+    sample.address.space = dosbox_agent::MemorySpace::Segmented;
+    sample.address.segment = 0x1234;
+    sample.address.offset = 0x0100;
+
+    dosbox_agent::TraceEffect memory;
+    memory.kind = dosbox_agent::TraceEffectKind::MemoryWrite;
+    memory.address.space = dosbox_agent::MemorySpace::Linear;
+    memory.address.offset = 0x12540;
+    memory.byte_count = 2;
+    memory.before.push_back(0x00);
+    memory.before.push_back(0x00);
+    memory.after.push_back(0x34);
+    memory.after.push_back(0x12);
+    sample.effects.push_back(memory);
+
+    dosbox_agent::TraceEffect io;
+    io.kind = dosbox_agent::TraceEffectKind::IoWrite;
+    io.port = 0x0080;
+    io.byte_count = 1;
+    io.value = 0x34;
+    sample.effects.push_back(io);
+
+    trace.Merge(std::vector<dosbox_agent::TraceSample>(1, sample));
+    dosbox_agent::TracePage page;
+    bool expired = false;
+    ASSERT_TRUE(trace.Read(false, 0, 4, &page, &expired));
+    ASSERT_FALSE(expired);
+    ASSERT_EQ(1U, page.events.size());
+    ASSERT_EQ(2U, page.events[0].sample.effects.size());
+    EXPECT_EQ(dosbox_agent::TraceEffectKind::MemoryWrite,
+              page.events[0].sample.effects[0].kind);
+    EXPECT_EQ(0x12540U, page.events[0].sample.effects[0].address.offset);
+    EXPECT_EQ(0x34, page.events[0].sample.effects[0].after[0]);
+    EXPECT_EQ(dosbox_agent::TraceEffectKind::IoWrite,
+              page.events[0].sample.effects[1].kind);
+    EXPECT_EQ(0x0080, page.events[0].sample.effects[1].port);
+    EXPECT_EQ(0x34U, page.events[0].sample.effects[1].value);
 }
 
 TEST(AgentDos, ReturnsLoaderMetadataAndTypedMcbOwnership)

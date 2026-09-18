@@ -129,23 +129,23 @@ static INLINE void FetchDiscardb() {
 }
 
 static INLINE uint8_t FetchPeekb() {
-	uint8_t temp=LoadMb(core.cseip);
+	uint8_t temp=mem_readb_unobserved_inline(core.cseip);
 	return temp;
 }
 
 static INLINE uint8_t Fetchb() {
-	uint8_t temp=LoadMb(core.cseip);
+	uint8_t temp=mem_readb_unobserved_inline(core.cseip);
 	core.cseip+=1;
 	return temp;
 }
 
 static INLINE uint16_t Fetchw() {
-	uint16_t temp=LoadMw(core.cseip);
+	uint16_t temp=mem_readw_unobserved_inline(core.cseip);
 	core.cseip+=2;
 	return temp;
 }
 static INLINE uint32_t Fetchd() {
-	uint32_t temp=LoadMd(core.cseip);
+	uint32_t temp=mem_readd_unobserved_inline(core.cseip);
 	core.cseip+=4;
 	return temp;
 }
