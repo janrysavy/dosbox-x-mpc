@@ -201,6 +201,32 @@ class AgentClientTests(unittest.TestCase):
         self.assertEqual(19, len(transport.requests))
         self.assertEqual(str(make_config().dosbox_workdir), transport.requests[1]["params"]["mounts"][0]["host_path"])
 
+    def test_status_and_program_exit_preserve_process_lifecycle_metadata(self) -> None:
+        def handler(request: dict) -> dict:
+            if request["method"] == "session.status":
+                return {"result": {
+                    "session_id": "ses-1",
+                    "state_revision": 3,
+                    "state": "exited",
+                    "target": {"command": "AGENTFIX.COM", "psp": 0x1234},
+                    "last_stop": {
+                        "kind": "program_exit",
+                        "psp": 0x1234,
+                        "exit_code": 7,
+                        "tsr": False,
+                    },
+                }}
+            self.fail(f"unexpected method {request['method']}")
+
+        client = AgentClient(make_config(), FakeTransport(handler))
+        session = client.status("ses-1")
+        self.assertEqual(0x1234, session.target_psp)
+        self.assertIsNotNone(session.stop_reason)
+        self.assertEqual("program_exit", session.stop_reason.kind)
+        self.assertEqual(0x1234, session.stop_reason.psp)
+        self.assertEqual(7, session.stop_reason.exit_code)
+        self.assertIs(False, session.stop_reason.tsr)
+
     def test_base64_request_error_mapping_and_explicit_request_id_retry(self) -> None:
         write_response = {"session_id": "ses-1", "state_revision": 2, "address": {"space": "segmented", "segment": "0x0812", "offset": "0x00000200"}, "byte_count": 2, "before_sha256": "a" * 64, "after_sha256": "b" * 64}
 

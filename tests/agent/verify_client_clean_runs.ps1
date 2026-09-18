@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
-    [string]$DosboxExecutable = (Join-Path $PSScriptRoot '..\..\bin\x64\Agent Debug SDL2\dosbox-x.exe'),
-    [string]$PythonExecutable = 'py'
+    [string]$DosboxExecutable = '',
+    [string]$PythonExecutable = 'py',
+    [int]$RunCount = 3
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,6 +19,10 @@ function Assert-Condition {
 }
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$defaultDosboxExecutable = Join-Path $repositoryRoot 'bin\x64\Agent Debug SDL2\dosbox-x.exe'
+if (!$DosboxExecutable) {
+    $DosboxExecutable = $defaultDosboxExecutable
+}
 $dosboxPath = (Resolve-Path -LiteralPath $DosboxExecutable).Path
 $e2eScript = Join-Path $repositoryRoot 'client\python\tests\test_e2e.py'
 Assert-Condition (Test-Path -LiteralPath $dosboxPath -PathType Leaf) "DOSBox-X executable was not found: $dosboxPath"
@@ -26,15 +31,13 @@ Assert-Condition (Test-Path -LiteralPath $e2eScript -PathType Leaf) "E2E script 
 $runRoot = Join-Path $PSScriptRoot ('e2e-clean-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $runRoot | Out-Null
 
-for ($index = 1; $index -le 3; ++$index) {
+for ($index = 1; $index -le $RunCount; ++$index) {
     $runtimeDirectory = Join-Path $runRoot ("runtime-$index")
     $configPath = Join-Path $runRoot ("agent-e$index.env")
+    $dosboxConfigPath = [System.IO.Path]::ChangeExtension($configPath, '.conf')
     New-Item -ItemType Directory -Path $runtimeDirectory | Out-Null
 
     & (Join-Path $PSScriptRoot 'build_fixture.ps1') -RuntimeDirectory $runtimeDirectory
-    if ($LASTEXITCODE -ne 0) {
-        throw "Fixture generation failed for clean E2E run $index"
-    }
     Copy-Item -LiteralPath $dosboxPath -Destination (Join-Path $runtimeDirectory 'dosbox-x.exe') -Force
 
     $config = @(
@@ -50,6 +53,11 @@ for ($index = 1; $index -le 3; ++$index) {
     )
     $config[1] = 'endpoint=' + $config[1]
     [System.IO.File]::WriteAllText($configPath, ($config -join [Environment]::NewLine) + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllText(
+        $dosboxConfigPath,
+        "[sdl]$([Environment]::NewLine)fullscreen=false$([Environment]::NewLine)",
+        [System.Text.UTF8Encoding]::new($false)
+    )
 
     & $PythonExecutable $e2eScript --config $configPath
     if ($LASTEXITCODE -ne 0) {
@@ -57,4 +65,4 @@ for ($index = 1; $index -le 3; ++$index) {
     }
 }
 
-Write-Output "RPC-E04 passed: three independent clean E2E runs completed under $runRoot."
+Write-Output "RPC-E04 passed: $RunCount independent clean E2E run(s) completed under $runRoot."

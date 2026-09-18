@@ -324,7 +324,7 @@ JSON number 不能无损表达所有未来 guest address，v1 所有 guest 寄�
 }
 ```
 
-合法 `kind`：`startup`、`step`、`breakpoint`、`pause`、`program_exit`、`fault`。`execution.wait` 返回 `running=true` 时不得同时给出 `stop_reason`。
+Valid `kind` values are `startup`, `step`, `breakpoint`, `pause`, `program_exit`, `session_stop`, and `fault`. A response with `execution.wait` `running=true` must not also contain `stop_reason`. `program_exit` is emitted only for a natural DOS exit of the captured target PSP; `session.stop` reports `session_stop`.
 
 ### 8.3 CPU state
 
@@ -489,7 +489,7 @@ start:
 - [x] `RPC-C07` - 执行断点；在 `CS:0106` 创建后依次调用 continue 和 wait；stop_reason.kind=`breakpoint` 且 address 与创建地址一致；证据：2026-09-02，Windows named-pipe 创建 `bp-1` 于 `CS:0x00000106`，continue/wait 返回 `kind=breakpoint`、`breakpoint_id=bp-1` 和同一 segmented address。
 - [x] `RPC-C08` - breakpoint stable id；创建多个 breakpoint、删除中间一个并列出；其他 id 不改变，按原 id 删除目标不会误删；证据：2026-09-02，Windows named-pipe 创建 `bp-1`、`bp-2`、`bp-3`，删除 `bp-2` 后 list 仍为 `bp-1`、`bp-3`，再按 `bp-3` 删除成功。
 - [x] `RPC-C09` - memory-change breakpoint capability；capability true 的 build 使用实际底层支持的 CPU mode 验证一次触发；capability false 的 build 返回 `CAPABILITY_UNAVAILABLE`，不得转换为 execution breakpoint；证据：2026-09-02，heavy build 在 real mode 对 `DS:0200` 创建 `bp-1` 并由 fixture 写入实际触发；`Agent Debug No Heavy SDL2|x64` capability 返回 `memory_change=false`，同一 create 返回 `CAPABILITY_UNAVAILABLE`。
-- [x] `RPC-C10` - `session.stop`；running 和 stopped 状态各执行一次 stop/wait；最终 state=exited，重复 stop 为幂等且不崩溃；证据：2026-09-02，Windows named-pipe 分别在 stopped `AGENTFIX.COM` 和 running `AGENTRUN.COM` 调用 stop/wait，均返回 `state=exited`、`kind=program_exit`；exited 后重复 stop 返回 `op-stop-complete`。
+- [x] `RPC-C10` - `session.stop`; stop/wait is exercised from both running and stopped states; the final state is `exited`, and repeated stop is idempotent. Evidence: the Windows named-pipe tests return `kind=session_stop` for controller termination and `op-stop-complete` when stopped again after exit.
 
 ### 阶段 D：输出、trace 和兼容命令
 
@@ -502,7 +502,7 @@ start:
 ### 阶段 E：Client 和端到端
 
 - [x] `RPC-E01` - Python client unit tests；执行 `py -m unittest discover -s client\python\tests -t client\python -v`；退出码为 0，覆盖 model、base64、error mapping、request id retry；证据：2026-09-02，3 个 unittest 全部通过；覆盖显式 dotenv 相对路径解析、全部 v1 client method 的 typed response、base64 写入、`TARGET_RUNNING` error mapping 和相同 `request_id` 的显式重试。
-- [x] `RPC-E02` - 端到端 fixture；执行 `py client\python\tests\test_e2e.py --config tests\agent\agent-test.env`；依次完成 start、breakpoint、continue、wait、register read、memory read、memory write、step、stop；退出码为 0；证据：2026-09-02，Windows named-pipe E2E 通过，同时验证 `CPU` 诊断输出和 `trace.start(instruction_count=2)` 的 session-local sequence。
+- [x] `RPC-E02` - End-to-end fixture; run `python client\python\tests\test_e2e.py --config tests\agent\agent-test.env`. It covers start, breakpoint, continue, wait, register and memory access, step, controller stop, natural DOS exit, child-PSP filtering, and continue/stop race ordering. A passing run exits zero.
 - [x] `RPC-E03` - DOSBox-X 既有单元测试未回归；执行 `& '.\bin\x64\Agent Debug SDL2\dosbox-x.exe' -tests`；退出码为 0 且输出 `Unit test completed: success`；证据：2026-09-02，`-tests` 退出码为 0；当前 Windows GUI build 不向调用 PowerShell 转发测试日志，`shell.cpp` 的 `RUN_ALL_TESTS()` 返回值为进程退出状态。
 - [x] `RPC-E04` - 干净运行可重复；执行 `if (Test-Path tests\agent\runtime) { Remove-Item -Recurse -Force tests\agent\runtime }; New-Item -ItemType Directory -Path tests\agent\runtime` 后，连续运行 E02 三次；三次均通过，trace 和输出无跨运行数据；证据：2026-09-02，`tests\agent\verify_client_clean_runs.ps1` 创建三个此前不存在的独立 runtime/config 目录并串行运行 E02 三次，三次均通过；每次 E2E 断言 output sequence 从 1 开始、trace sequence 恰为 1、2。
 

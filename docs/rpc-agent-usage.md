@@ -59,7 +59,7 @@ session = agent.start(
 )
 ```
 
-`target.command` 和 `target.arguments` 只允许字母、数字、`.`、`_`、`-`，因此应在启动前完成文件准备，不要把 `C:\...`、引号、重定向或 shell 元字符传给 RPC。
+`target.command` accepts letters, digits, `.`, `_`, and `-`. Arguments accept the same characters and may start with one DOS option prefix `/`. Prepare files before launch; do not pass host paths, quotes, redirection, or shell metacharacters through the RPC.
 
 ## 3. 配置文件
 

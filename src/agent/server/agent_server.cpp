@@ -3026,6 +3026,12 @@ void AgentServer::CompleteTargetTerminationOnEmulationThread(const std::shared_p
     if (active.operations.find(operation_id) == active.operations.end())
         return;
 
+    for (std::map<std::string, Impl::Breakpoint>::const_iterator item = active.breakpoints.begin();
+         item != active.breakpoints.end(); ++item) {
+        std::string cleanup_error;
+        (void)adapter.DeleteBreakpoint(item->second.native, &cleanup_error);
+    }
+    active.breakpoints.clear();
     active.state = Impl::SessionState::Exited;
     active.trace.Stop();
     active.last_stop_kind = "session_stop";
@@ -3142,6 +3148,13 @@ void AgentServer::OnProgramExited(const std::shared_ptr<Impl>& impl,
         active.state != Impl::SessionState::Stopped)
         return;
 
+    AgentRuntime& adapter = *impl->runtime;
+    for (std::map<std::string, Impl::Breakpoint>::const_iterator item = active.breakpoints.begin();
+         item != active.breakpoints.end(); ++item) {
+        std::string cleanup_error;
+        (void)adapter.DeleteBreakpoint(item->second.native, &cleanup_error);
+    }
+    active.breakpoints.clear();
     active.state = Impl::SessionState::Exited;
     active.trace.Stop();
     active.exit_psp = psp;

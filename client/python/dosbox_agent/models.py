@@ -91,14 +91,23 @@ class StopReason:
     kind: str
     address: MemoryAddress | None = None
     breakpoint_id: str | None = None
+    psp: int | None = None
+    exit_code: int | None = None
+    tsr: bool | None = None
 
     @classmethod
     def from_rpc(cls, value: Mapping[str, Any]) -> "StopReason":
         address = value.get("address")
+        psp = value.get("psp")
+        exit_code = value.get("exit_code")
+        tsr = value.get("tsr")
         return cls(
             kind=_string(value.get("kind"), "stop_reason.kind"),
             address=MemoryAddress.from_rpc(_mapping(address, "stop_reason.address")) if address is not None else None,
             breakpoint_id=value.get("breakpoint_id") if isinstance(value.get("breakpoint_id"), str) else None,
+            psp=_integer(psp, "stop_reason.psp") if psp is not None else None,
+            exit_code=_integer(exit_code, "stop_reason.exit_code") if exit_code is not None else None,
+            tsr=tsr if isinstance(tsr, bool) else None,
         )
 
 
@@ -108,6 +117,7 @@ class Session:
     state: str
     state_revision: int
     stop_reason: StopReason | None = None
+    target_psp: int | None = None
 
 
 @dataclass(frozen=True)

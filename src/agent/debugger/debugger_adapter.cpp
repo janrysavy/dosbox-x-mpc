@@ -296,23 +296,29 @@ bool DebuggerAdapter::StartTargetAtEntry(const std::string& command,
         return false;
     }
 
-    const auto is_dos_token = [](const std::string& value) {
+    const auto is_dos_token = [](const std::string& value, const bool allow_option_prefix) {
         if (value.empty())
             return false;
-        for (std::string::const_iterator it = value.begin(); it != value.end(); ++it) {
+        std::string::const_iterator it = value.begin();
+        if (allow_option_prefix && *it == '/') {
+            ++it;
+            if (it == value.end())
+                return false;
+        }
+        for (; it != value.end(); ++it) {
             const unsigned char character = static_cast<unsigned char>(*it);
             if (!std::isalnum(character) && *it != '.' && *it != '_' && *it != '-')
                 return false;
         }
         return true;
     };
-    if (!is_dos_token(command)) {
+    if (!is_dos_token(command, false)) {
         if (error != NULL)
             *error = "target.command must be a DOS filename without shell metacharacters";
         return false;
     }
     for (std::vector<std::string>::const_iterator it = arguments.begin(); it != arguments.end(); ++it) {
-        if (!is_dos_token(*it)) {
+        if (!is_dos_token(*it, true)) {
             if (error != NULL)
                 *error = "target.arguments must contain only DOS-safe tokens";
             return false;

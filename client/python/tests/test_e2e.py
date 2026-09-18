@@ -19,12 +19,20 @@ def main() -> int:
     parser.add_argument("--config", required=True)
     arguments = parser.parse_args()
     config_path = Path(arguments.config).resolve()
+    dosbox_config_path = config_path.with_suffix(".conf")
     client = AgentClient.from_config(config_path)
     if not client.config.dosbox_executable.is_file():
         raise RuntimeError(f"DOSBox-X executable was not found: {client.config.dosbox_executable}")
+    if not dosbox_config_path.is_file():
+        raise RuntimeError(f"DOSBox-X config was not found: {dosbox_config_path}")
 
     process = subprocess.Popen(
-        [str(client.config.dosbox_executable), "--agent-config", str(config_path)],
+        [
+            str(client.config.dosbox_executable),
+            "-conf", str(dosbox_config_path),
+            "-nopromptfolder",
+            "--agent-config", str(config_path),
+        ],
         cwd=REPOSITORY_ROOT,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
@@ -95,9 +103,57 @@ def main() -> int:
 
         stop = client.stop(session.id)
         exited = client.wait(session.id, stop.id, 10000)
-        if exited.running or exited.session.state != "exited" or exited.session.stop_reason is None or exited.session.stop_reason.kind != "program_exit":
-            raise AssertionError("session.stop did not terminate the fixture")
-        print("RPC-E02 passed: Python client completed fixture start, breakpoint, execution, memory, step, and stop.")
+        if exited.running or exited.session.state != "exited" or exited.session.stop_reason is None or exited.session.stop_reason.kind != "session_stop":
+            raise AssertionError("session.stop did not report controller termination")
+
+        session = client.start("AGENTFIX.COM")
+        session_id = session.id
+        status = client.status(session.id)
+        if status.target_psp is None:
+            raise AssertionError("session.status did not report the target PSP")
+        operation = client.continue_(session.id)
+        exited = client.wait(session.id, operation.id, 10000)
+        reason = exited.session.stop_reason
+        if exited.running or exited.session.state != "exited" or reason is None or reason.kind != "program_exit":
+            raise AssertionError(f"natural fixture exit was not reported as program_exit: {exited}")
+        if reason.psp != status.target_psp or reason.exit_code != 0 or reason.tsr is not False:
+            raise AssertionError(
+                f"natural exit metadata mismatch: target PSP={status.target_psp}, stop reason={reason}"
+            )
+
+        session = client.start("COMMAND.COM", ("/C", "AGENTFIX.COM"))
+        session_id = session.id
+        status = client.status(session.id)
+        if status.target_psp is None:
+            raise AssertionError("COMMAND.COM session did not report the target PSP")
+        operation = client.continue_(session.id)
+        exited = client.wait(session.id, operation.id, 10000)
+        reason = exited.session.stop_reason
+        if exited.running or exited.session.state != "exited" or reason is None or reason.kind != "program_exit":
+            raise AssertionError("COMMAND.COM did not survive its child process exit")
+        if reason.psp != status.target_psp:
+            raise AssertionError(
+                f"child exit was mistaken for target exit: target PSP={status.target_psp}, stop reason={reason}"
+            )
+
+        race_kinds: set[str] = set()
+        for _ in range(8):
+            session = client.start("AGENTFIX.COM")
+            session_id = session.id
+            operation = client.continue_(session.id)
+            stop = client.stop(session.id)
+            if stop.id == "op-stop-complete":
+                race_result = client.status(session.id)
+            else:
+                race_result = client.wait(session.id, stop.id, 10000).session
+            if race_result.stop_reason is None or race_result.stop_reason.kind not in ("program_exit", "session_stop"):
+                raise AssertionError(f"continue/stop race had invalid result: {race_result}")
+            race_kinds.add(race_result.stop_reason.kind)
+
+        print(
+            "RPC-E02 passed: client operations, controller stop, natural DOS exit, child-PSP filtering, "
+            f"and 8 continue/stop races ({sorted(race_kinds)}) passed."
+        )
         return 0
     finally:
         if session_id is not None:

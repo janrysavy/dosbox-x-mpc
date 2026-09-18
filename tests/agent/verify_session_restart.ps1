@@ -88,7 +88,7 @@ try {
         }
         Assert-Condition ($null -eq $wait.error) ("execution.wait $Suffix failed: " + ($wait | ConvertTo-Json -Compress -Depth 10))
         Assert-Condition ($wait.result.state -eq 'exited') ("session.stop $Suffix did not exit: " + ($wait | ConvertTo-Json -Compress -Depth 10))
-        Assert-Condition ($wait.result.stop_reason.kind -eq 'program_exit') ("session.stop $Suffix had unexpected stop reason: " + ($wait | ConvertTo-Json -Compress -Depth 10))
+        Assert-Condition ($wait.result.stop_reason.kind -eq 'session_stop') ("session.stop $Suffix had unexpected stop reason: " + ($wait | ConvertTo-Json -Compress -Depth 10))
     }
 
     Start-And-StopFixture '1'

@@ -490,9 +490,18 @@ def _session(result: Mapping[str, Any], *, stop_key: str, default_state: str | N
     state = result.get("state", default_state)
     if not isinstance(state, str):
         raise AgentProtocolError("response field state must be a string")
+    target = result.get("target")
+    target_psp = None
+    if target is not None:
+        target_psp_value = _object_value(target, "target").get("psp")
+        if target_psp_value is not None:
+            target_psp = _integer_value(target_psp_value, "target.psp")
     return Session(
-        _string(result, "session_id"), state, _integer(result, "state_revision"),
-        StopReason.from_rpc(_object_value(stop, stop_key)) if stop is not None else None,
+        id=_string(result, "session_id"),
+        state=state,
+        state_revision=_integer(result, "state_revision"),
+        stop_reason=StopReason.from_rpc(_object_value(stop, stop_key)) if stop is not None else None,
+        target_psp=target_psp,
     )
 
 
@@ -539,6 +548,10 @@ def _string(result: Mapping[str, Any], name: str) -> str:
 
 def _integer(result: Mapping[str, Any], name: str) -> int:
     value = result.get(name)
+    return _integer_value(value, name)
+
+
+def _integer_value(value: Any, name: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool):
         raise AgentProtocolError(f"response field {name} must be an integer")
     return value
