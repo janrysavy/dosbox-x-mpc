@@ -93,14 +93,27 @@ enum class StepMode {
 
 enum class BreakpointKind {
     Execution,
-    MemoryChange
+    MemoryChange,
+    MemoryRead,
+    MemoryWrite,
+    MemoryAccess
 };
 
 struct NativeBreakpoint {
     std::uintptr_t handle = 0;
     BreakpointKind kind = BreakpointKind::Execution;
     MemoryAddress address;
+    std::uint32_t length = 1;
     bool once = false;
+};
+
+struct WatchpointHit {
+    std::uintptr_t handle = 0;
+    bool write = false;
+    MemoryAddress address;
+    MemoryAddress instruction_address;
+    std::vector<std::uint8_t> before;
+    std::vector<std::uint8_t> after;
 };
 
 class DebuggerAdapter {
@@ -132,12 +145,14 @@ public:
                      std::string* error) const;
     bool CreateBreakpoint(BreakpointKind kind,
                           const MemoryAddress& address,
+                          std::uint32_t length,
                           bool once,
                           NativeBreakpoint* breakpoint,
                           MemoryAccessError* access_error,
                           std::string* error) const;
     bool DeleteBreakpoint(const NativeBreakpoint& breakpoint, std::string* error) const;
     std::uintptr_t ConsumeLastBreakpointHandle() const;
+    bool ConsumeLastWatchpointHit(WatchpointHit* hit) const;
     bool ExecuteDiagnosticCommand(const std::string& command,
                                   std::string* raw_output,
                                   std::string* error) const;

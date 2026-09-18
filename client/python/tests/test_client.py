@@ -191,9 +191,9 @@ class AgentClientTests(unittest.TestCase):
             if method == "memory.write":
                 return {"result": {"session_id": "ses-1", "state_revision": 4, "address": address, "byte_count": 3, "before_sha256": "b" * 64, "after_sha256": "c" * 64}}
             if method == "breakpoints.create":
-                return {"result": {"session_id": "ses-1", "state_revision": 5, "breakpoint_id": "bp-1", "kind": "execution", "once": False, "address": address}}
+                return {"result": {"session_id": "ses-1", "state_revision": 5, "breakpoint_id": "bp-1", "kind": "execution", "length": 1, "once": False, "address": address}}
             if method == "breakpoints.list":
-                return {"result": {"session_id": "ses-1", "state_revision": 5, "breakpoints": [{"breakpoint_id": "bp-1", "kind": "execution", "enabled": True, "once": False, "address": address}]}}
+                return {"result": {"session_id": "ses-1", "state_revision": 5, "breakpoints": [{"breakpoint_id": "bp-1", "kind": "execution", "length": 1, "enabled": True, "once": False, "address": address}]}}
             if method == "breakpoints.delete":
                 return {"result": {"session_id": "ses-1", "state_revision": 6, "breakpoint_id": "bp-1", "deleted": True}}
             if method == "debug.output.read":
@@ -240,6 +240,80 @@ class AgentClientTests(unittest.TestCase):
         self.assertEqual("op-1", client.stop(session.id).id)
         self.assertEqual(26, len(transport.requests))
         self.assertEqual(str(make_config().dosbox_workdir), transport.requests[1]["params"]["mounts"][0]["host_path"])
+
+    def test_watchpoint_request_and_stop_are_typed(self) -> None:
+        watched_address = {"space": "segmented", "segment": "0x0812", "offset": "0x00000200"}
+        access_address = {"space": "linear", "offset": "0x00008320"}
+        instruction_address = {"space": "segmented", "segment": "0x0812", "offset": "0x00000109"}
+
+        def handler(request: dict) -> dict:
+            if request["method"] == "breakpoints.create":
+                params = request["params"]
+                return {"result": {
+                    "session_id": "ses-1", "state_revision": 2, "breakpoint_id": "bp-watch",
+                    "kind": params["kind"], "length": params["length"], "once": params["once"],
+                    "address": params["address"],
+                }}
+            if request["method"] == "execution.wait":
+                register_values = registers_result(3)
+                register_values["phase"] = "after_instruction"
+                return {"result": {
+                    "session_id": "ses-1", "state_revision": 3, "state": "stopped",
+                    "stop_reason": {
+                        "kind": "breakpoint", "breakpoint_id": "bp-watch",
+                        "address": watched_address,
+                        "access": {
+                            "kind": "write", "address": access_address, "byte_count": 2,
+                            "before_base64": base64.b64encode(b"\x00\x00").decode("ascii"),
+                            "after_base64": base64.b64encode(b"CB").decode("ascii"),
+                            "instruction_address": instruction_address,
+                        },
+                        "registers": register_values,
+                    },
+                }}
+            self.fail(f"unexpected method {request['method']}")
+
+        transport = FakeTransport(handler)
+        client = AgentClient(make_config(), transport)
+        breakpoint = client.create_watchpoint(
+            "ses-1", "memory_write", MemoryAddress.segmented(0x0812, 0x0200),
+            length=3, once=True,
+        )
+        self.assertEqual("memory_write", breakpoint.kind)
+        self.assertEqual(3, breakpoint.length)
+        self.assertTrue(breakpoint.once)
+        self.assertEqual(3, transport.requests[0]["params"]["length"])
+
+        stopped = client.wait("ses-1", "op-1", 100).session.stop_reason
+        self.assertIsNotNone(stopped)
+        self.assertEqual("bp-watch", stopped.breakpoint_id)
+        self.assertEqual("write", stopped.access.kind)
+        self.assertEqual(b"\x00\x00", stopped.access.before)
+        self.assertEqual(b"CB", stopped.access.after)
+        self.assertEqual("0x00000109", stopped.access.instruction_address.offset)
+        self.assertEqual("after_instruction", stopped.registers.phase)
+        self.assertEqual(3, stopped.registers.state_revision)
+
+    def test_watchpoint_stop_rejects_malformed_binary_evidence(self) -> None:
+        address = {"space": "linear", "offset": "0x00008320"}
+        instruction = {"space": "segmented", "segment": "0x0812", "offset": "0x00000109"}
+
+        def handler(request: dict) -> dict:
+            return {"result": {
+                "session_id": "ses-1", "state_revision": 3, "state": "stopped",
+                "stop_reason": {
+                    "kind": "breakpoint",
+                    "access": {
+                        "kind": "write", "address": address, "byte_count": 2,
+                        "before_base64": "not-base64", "after_base64": "Q0I=",
+                        "instruction_address": instruction,
+                    },
+                },
+            }}
+
+        client = AgentClient(make_config(), FakeTransport(handler))
+        with self.assertRaisesRegex(ValueError, "invalid base64"):
+            client.wait("ses-1", "op-1", 100)
 
     def test_status_and_program_exit_preserve_process_lifecycle_metadata(self) -> None:
         def handler(request: dict) -> dict:

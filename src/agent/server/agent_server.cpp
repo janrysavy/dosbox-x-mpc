@@ -566,6 +566,10 @@ public:
         std::string last_stop_breakpoint_id;
         MemoryAddress last_stop_breakpoint_address;
         bool has_last_stop_breakpoint_address = false;
+        WatchpointHit last_watchpoint_hit;
+        bool has_last_watchpoint_hit = false;
+        RegisterSnapshot last_watchpoint_registers;
+        bool has_last_watchpoint_registers = false;
         std::string failure_message;
         std::uint64_t state_revision = 0;
         std::uint64_t next_operation = 1;
@@ -640,12 +644,14 @@ public:
                              std::string* error) const = 0;
     virtual bool CreateBreakpoint(BreakpointKind kind,
                                   const MemoryAddress& address,
+                                  std::uint32_t length,
                                   bool once,
                                   NativeBreakpoint* breakpoint,
                                   MemoryAccessError* access_error,
                                   std::string* error) const = 0;
     virtual bool DeleteBreakpoint(const NativeBreakpoint& breakpoint, std::string* error) const = 0;
     virtual std::uintptr_t ConsumeLastBreakpointHandle() const = 0;
+    virtual bool ConsumeLastWatchpointHit(WatchpointHit* hit) const = 0;
     virtual bool ExecuteDiagnosticCommand(const std::string& command,
                                           std::string* raw_output,
                                           std::string* error) const = 0;
@@ -686,9 +692,10 @@ public:
     AGENT_RUNTIME_FORWARD(Step, bool Step(StepMode mode, bool* continued, std::string* error) const, (mode, continued, error))
     AGENT_RUNTIME_FORWARD(ReadMemory, bool ReadMemory(const MemoryAddress& address, std::size_t length, std::vector<std::uint8_t>* data, MemoryAccessError* access_error, std::string* error) const, (address, length, data, access_error, error))
     AGENT_RUNTIME_FORWARD(WriteMemory, bool WriteMemory(const MemoryAddress& address, const std::vector<std::uint8_t>& data, std::vector<std::uint8_t>* after, MemoryAccessError* access_error, std::string* error) const, (address, data, after, access_error, error))
-    AGENT_RUNTIME_FORWARD(CreateBreakpoint, bool CreateBreakpoint(BreakpointKind kind, const MemoryAddress& address, bool once, NativeBreakpoint* breakpoint, MemoryAccessError* access_error, std::string* error) const, (kind, address, once, breakpoint, access_error, error))
+    AGENT_RUNTIME_FORWARD(CreateBreakpoint, bool CreateBreakpoint(BreakpointKind kind, const MemoryAddress& address, std::uint32_t length, bool once, NativeBreakpoint* breakpoint, MemoryAccessError* access_error, std::string* error) const, (kind, address, length, once, breakpoint, access_error, error))
     AGENT_RUNTIME_FORWARD(DeleteBreakpoint, bool DeleteBreakpoint(const NativeBreakpoint& breakpoint, std::string* error) const, (breakpoint, error))
     AGENT_RUNTIME_FORWARD(ConsumeLastBreakpointHandle, std::uintptr_t ConsumeLastBreakpointHandle() const, ())
+    AGENT_RUNTIME_FORWARD(ConsumeLastWatchpointHit, bool ConsumeLastWatchpointHit(WatchpointHit* hit) const, (hit))
     AGENT_RUNTIME_FORWARD(ExecuteDiagnosticCommand, bool ExecuteDiagnosticCommand(const std::string& command, std::string* raw_output, std::string* error) const, (command, raw_output, error))
     AGENT_RUNTIME_FORWARD(StartTrace, bool StartTrace(const std::string& detail, std::uint32_t instruction_count, std::string* error) const, (detail, instruction_count, error))
     AGENT_RUNTIME_FORWARD(ReadTrace, bool ReadTrace(std::vector<TraceSample>* samples, bool* active, std::string* error) const, (samples, active, error))
@@ -770,9 +777,10 @@ public:
     AGENT_RUNTIME_UNAVAILABLE(Step, bool Step(StepMode, bool*, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(ReadMemory, bool ReadMemory(const MemoryAddress&, std::size_t, std::vector<std::uint8_t>*, MemoryAccessError*, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(WriteMemory, bool WriteMemory(const MemoryAddress&, const std::vector<std::uint8_t>&, std::vector<std::uint8_t>*, MemoryAccessError*, std::string* error) const)
-    AGENT_RUNTIME_UNAVAILABLE(CreateBreakpoint, bool CreateBreakpoint(BreakpointKind, const MemoryAddress&, bool, NativeBreakpoint*, MemoryAccessError*, std::string* error) const)
+    AGENT_RUNTIME_UNAVAILABLE(CreateBreakpoint, bool CreateBreakpoint(BreakpointKind, const MemoryAddress&, std::uint32_t, bool, NativeBreakpoint*, MemoryAccessError*, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(DeleteBreakpoint, bool DeleteBreakpoint(const NativeBreakpoint&, std::string* error) const)
     std::uintptr_t ConsumeLastBreakpointHandle() const override { return 0; }
+    bool ConsumeLastWatchpointHit(WatchpointHit*) const override { return false; }
     AGENT_RUNTIME_UNAVAILABLE(ExecuteDiagnosticCommand, bool ExecuteDiagnosticCommand(const std::string&, std::string*, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(StartTrace, bool StartTrace(const std::string&, std::uint32_t, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(ReadTrace, bool ReadTrace(std::vector<TraceSample>*, bool*, std::string* error) const)
@@ -923,6 +931,18 @@ static const char* StateName(const AgentServer::Impl::SessionState state)
     return "failed";
 }
 
+static const char* BreakpointKindName(const BreakpointKind kind)
+{
+    switch (kind) {
+    case BreakpointKind::Execution: return "execution";
+    case BreakpointKind::MemoryChange: return "memory_change";
+    case BreakpointKind::MemoryRead: return "memory_read";
+    case BreakpointKind::MemoryWrite: return "memory_write";
+    case BreakpointKind::MemoryAccess: return "memory_access";
+    }
+    return "unknown";
+}
+
 static JsonValue SessionResult(const AgentServer::Impl::Session& session)
 {
     JsonValue result = Object();
@@ -989,6 +1009,36 @@ static bool ReadOutput(const AgentServer::Impl::Session& session,
     return true;
 }
 
+static std::string Hex32(std::uint32_t value);
+static std::string Hex16(std::uint16_t value);
+
+static JsonValue RegisterFields(const RegisterSnapshot& registers)
+{
+    JsonValue result = Object();
+    JsonValue general = Object();
+    Add(&general, "eax", String(Hex32(registers.eax)));
+    Add(&general, "ebx", String(Hex32(registers.ebx)));
+    Add(&general, "ecx", String(Hex32(registers.ecx)));
+    Add(&general, "edx", String(Hex32(registers.edx)));
+    Add(&general, "esi", String(Hex32(registers.esi)));
+    Add(&general, "edi", String(Hex32(registers.edi)));
+    Add(&general, "ebp", String(Hex32(registers.ebp)));
+    Add(&general, "esp", String(Hex32(registers.esp)));
+    Add(&result, "general", general);
+    JsonValue segments = Object();
+    Add(&segments, "cs", String(Hex16(registers.cs)));
+    Add(&segments, "ds", String(Hex16(registers.ds)));
+    Add(&segments, "es", String(Hex16(registers.es)));
+    Add(&segments, "fs", String(Hex16(registers.fs)));
+    Add(&segments, "gs", String(Hex16(registers.gs)));
+    Add(&segments, "ss", String(Hex16(registers.ss)));
+    Add(&result, "segments", segments);
+    Add(&result, "instruction_pointer", String(Hex32(registers.instruction_pointer)));
+    Add(&result, "flags", String(Hex32(registers.flags)));
+    Add(&result, "cpu_mode", String(registers.cpu_mode));
+    return result;
+}
+
 static JsonValue StopReason(const AgentServer::Impl::Session& session)
 {
     JsonValue stop = Object();
@@ -1015,6 +1065,23 @@ static JsonValue StopReason(const AgentServer::Impl::Session& session)
         Add(&address, "segment", String(segment.str()));
         Add(&address, "offset", String(offset.str()));
         Add(&stop, "address", address);
+    }
+    if (session.has_last_watchpoint_hit) {
+        JsonValue access = Object();
+        Add(&access, "kind", String(session.last_watchpoint_hit.write ? "write" : "read"));
+        Add(&access, "address", EncodeMemoryAddress(session.last_watchpoint_hit.address));
+        Add(&access, "byte_count", Number(session.last_watchpoint_hit.after.size()));
+        Add(&access, "before_base64", String(EncodeBase64(session.last_watchpoint_hit.before)));
+        Add(&access, "after_base64", String(EncodeBase64(session.last_watchpoint_hit.after)));
+        Add(&access, "instruction_address",
+            EncodeMemoryAddress(session.last_watchpoint_hit.instruction_address));
+        Add(&stop, "access", access);
+        if (session.has_last_watchpoint_registers) {
+            JsonValue registers = RegisterFields(session.last_watchpoint_registers);
+            Add(&registers, "phase", String("after_instruction"));
+            Add(&registers, "state_revision", Number(session.state_revision));
+            Add(&stop, "registers", registers);
+        }
     }
     return stop;
 }
@@ -1057,27 +1124,10 @@ static JsonValue RegistersResult(const RegisterSnapshot& registers,
                                  const AgentServer::Impl::Session& session)
 {
     JsonValue result = SessionResult(session);
-    JsonValue general = Object();
-    Add(&general, "eax", String(Hex32(registers.eax)));
-    Add(&general, "ebx", String(Hex32(registers.ebx)));
-    Add(&general, "ecx", String(Hex32(registers.ecx)));
-    Add(&general, "edx", String(Hex32(registers.edx)));
-    Add(&general, "esi", String(Hex32(registers.esi)));
-    Add(&general, "edi", String(Hex32(registers.edi)));
-    Add(&general, "ebp", String(Hex32(registers.ebp)));
-    Add(&general, "esp", String(Hex32(registers.esp)));
-    Add(&result, "general", general);
-    JsonValue segments = Object();
-    Add(&segments, "cs", String(Hex16(registers.cs)));
-    Add(&segments, "ds", String(Hex16(registers.ds)));
-    Add(&segments, "es", String(Hex16(registers.es)));
-    Add(&segments, "fs", String(Hex16(registers.fs)));
-    Add(&segments, "gs", String(Hex16(registers.gs)));
-    Add(&segments, "ss", String(Hex16(registers.ss)));
-    Add(&result, "segments", segments);
-    Add(&result, "instruction_pointer", String(Hex32(registers.instruction_pointer)));
-    Add(&result, "flags", String(Hex32(registers.flags)));
-    Add(&result, "cpu_mode", String(registers.cpu_mode));
+    JsonValue fields = RegisterFields(registers);
+    for (std::map<std::string, JsonValue>::const_iterator item = fields.object.begin();
+         item != fields.object.end(); ++item)
+        Add(&result, item->first.c_str(), item->second);
     return result;
 }
 
@@ -1363,8 +1413,14 @@ static std::string Capabilities(const AgentConfig& config)
     JsonValue breakpoints = Object();
 #ifdef C_HEAVY_DEBUG
     Add(&breakpoints, "memory_change", JsonValue::Bool(true));
+    Add(&breakpoints, "memory_read", JsonValue::Bool(true));
+    Add(&breakpoints, "memory_write", JsonValue::Bool(true));
+    Add(&breakpoints, "memory_access", JsonValue::Bool(true));
 #else
     Add(&breakpoints, "memory_change", JsonValue::Bool(false));
+    Add(&breakpoints, "memory_read", JsonValue::Bool(false));
+    Add(&breakpoints, "memory_write", JsonValue::Bool(false));
+    Add(&breakpoints, "memory_access", JsonValue::Bool(false));
 #endif
     JsonValue memory_change_spaces = JsonValue::Array();
 #ifdef C_HEAVY_DEBUG
@@ -1372,6 +1428,13 @@ static std::string Capabilities(const AgentConfig& config)
     memory_change_spaces.array.push_back(String("linear"));
 #endif
     Add(&breakpoints, "memory_change_address_spaces", memory_change_spaces);
+    JsonValue exact_access_spaces = JsonValue::Array();
+#ifdef C_HEAVY_DEBUG
+    exact_access_spaces.array.push_back(String("segmented"));
+    exact_access_spaces.array.push_back(String("linear"));
+#endif
+    Add(&breakpoints, "exact_access_address_spaces", exact_access_spaces);
+    Add(&breakpoints, "exact_access_requires_normal_core", JsonValue::Bool(true));
     Add(&result, "breakpoints", breakpoints);
     JsonValue spaces = JsonValue::Array();
     spaces.array.push_back(String("segmented"));
@@ -2151,6 +2214,8 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
             session->last_stop_kind = "session_stop";
             session->last_stop_breakpoint_id.clear();
             session->has_last_stop_breakpoint_address = false;
+            session->has_last_watchpoint_hit = false;
+            session->has_last_watchpoint_registers = false;
             ++session->state_revision;
             impl->state_changed.notify_all();
             JsonValue result = SessionResult(*session);
@@ -2239,10 +2304,11 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                  item != session->breakpoints.end(); ++item) {
                 JsonValue entry = Object();
                 Add(&entry, "breakpoint_id", String(item->second.id));
-                Add(&entry, "kind", String(item->second.native.kind == BreakpointKind::Execution ? "execution" : "memory_change"));
+                Add(&entry, "kind", String(BreakpointKindName(item->second.native.kind)));
                 Add(&entry, "enabled", JsonValue::Bool(item->second.enabled));
                 Add(&entry, "once", JsonValue::Bool(item->second.native.once));
                 Add(&entry, "address", EncodeMemoryAddress(item->second.native.address));
+                Add(&entry, "length", Number(item->second.native.length));
                 entries.array.push_back(entry);
             }
             Add(&result, "breakpoints", entries);
@@ -2253,12 +2319,24 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
         std::string validation_error;
         MemoryAddress address;
         bool once = false;
+        std::uint32_t length = 1;
         const JsonValue* once_value = parsed.params.Find("once");
-        if (!GetString(parsed.params, "kind", &kind_name) || (kind_name != "execution" && kind_name != "memory_change") ||
+        const JsonValue* length_value = parsed.params.Find("length");
+        if (!GetString(parsed.params, "kind", &kind_name) ||
+            (kind_name != "execution" && kind_name != "memory_change" &&
+             kind_name != "memory_read" && kind_name != "memory_write" &&
+             kind_name != "memory_access") ||
             !ParseMemoryAddress(parsed.params, "breakpoints.create", &address, &validation_error) ||
-            (once_value != NULL && !GetBool(parsed.params, "once", &once))) {
+            (once_value != NULL && !GetBool(parsed.params, "once", &once)) ||
+            (length_value != NULL && (!GetUnsignedInteger(*length_value, &length) || length == 0))) {
             response = InvalidParams(parsed.id, validation_error.empty() ?
-                                     "breakpoints.create requires kind, address, and optional boolean once" : validation_error);
+                                     "breakpoints.create requires kind, address, optional positive length, and optional boolean once" : validation_error);
+        } else if (length > impl->config.max_memory_read_bytes) {
+            response = Error(parsed.id, kErrorRequestTooLarge,
+                             "breakpoint length exceeds max_memory_read_bytes", "REQUEST_TOO_LARGE");
+        } else if ((kind_name == "execution" || kind_name == "memory_change") && length != 1) {
+            response = InvalidParams(parsed.id,
+                                     "execution and memory_change breakpoints require length 1");
         } else if (session->state == Impl::SessionState::Running) {
             response = SessionError(parsed.id, kErrorTargetRunning,
                                     "Target must be stopped before creating breakpoints", "TARGET_RUNNING", session);
@@ -2266,21 +2344,25 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
             response = SessionError(parsed.id, kErrorCapabilityUnavailable,
                                     "Target must be stopped before creating breakpoints", "TARGET_NOT_STOPPED", session);
         } else {
-            const BreakpointKind kind = kind_name == "execution" ? BreakpointKind::Execution : BreakpointKind::MemoryChange;
+            BreakpointKind kind = BreakpointKind::Execution;
+            if (kind_name == "memory_change") kind = BreakpointKind::MemoryChange;
+            else if (kind_name == "memory_read") kind = BreakpointKind::MemoryRead;
+            else if (kind_name == "memory_write") kind = BreakpointKind::MemoryWrite;
+            else if (kind_name == "memory_access") kind = BreakpointKind::MemoryAccess;
 #ifndef C_HEAVY_DEBUG
-            if (kind == BreakpointKind::MemoryChange) {
+            if (kind != BreakpointKind::Execution) {
                 response = Error(parsed.id, kErrorCapabilityUnavailable,
-                                 "Memory-change breakpoints require C_HEAVY_DEBUG", "CAPABILITY_UNAVAILABLE");
+                                 "Memory watchpoints require C_HEAVY_DEBUG", "CAPABILITY_UNAVAILABLE");
             } else
 #endif
             {
                 const std::shared_ptr<Impl::AdapterOperation> operation(new Impl::AdapterOperation());
-                if (SubmitEmulationCommandLocked(impl, [impl, operation, kind, address, once](const std::uint64_t) {
+                if (SubmitEmulationCommandLocked(impl, [impl, operation, kind, address, length, once](const std::uint64_t) {
                         AgentRuntime& adapter = *impl->runtime;
                         std::string adapter_error;
                         MemoryAccessError access_error;
                         NativeBreakpoint breakpoint;
-                        const bool success = adapter.CreateBreakpoint(kind, address, once, &breakpoint, &access_error, &adapter_error);
+                        const bool success = adapter.CreateBreakpoint(kind, address, length, once, &breakpoint, &access_error, &adapter_error);
                         {
                             std::lock_guard<std::mutex> operation_lock(operation->mutex);
                             operation->success = success;
@@ -2304,13 +2386,13 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                         return operation->completed.wait_for(operation_lock, std::chrono::milliseconds(timeout_ms),
                                                              [operation]() { return operation->done; });
                     };
-                    pending.finish = [impl, session_id, response_id, operation, address, kind, kind_name, once]() {
+                    pending.finish = [impl, session_id, response_id, operation, address, kind, kind_name, length, once]() {
                         if (!operation->success) {
                             if (!operation->access_error.reason.empty())
                                 return AddressError(response_id, "Unable to resolve breakpoint address", address, operation->access_error);
-                            if (kind == BreakpointKind::MemoryChange)
+                            if (kind != BreakpointKind::Execution)
                                 return Error(response_id, kErrorCapabilityUnavailable,
-                                             operation->error.empty() ? "Memory-change breakpoint is unavailable" : operation->error,
+                                             operation->error.empty() ? "Memory watchpoint is unavailable" : operation->error,
                                              "CAPABILITY_UNAVAILABLE");
                             return Error(response_id, kErrorCapabilityUnavailable,
                                          operation->error.empty() ? "Debugger rejected breakpoint" : operation->error,
@@ -2329,6 +2411,7 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                         Add(&result, "kind", String(kind_name));
                         Add(&result, "once", JsonValue::Bool(once));
                         Add(&result, "address", EncodeMemoryAddress(breakpoint.native.address));
+                        Add(&result, "length", Number(length));
                         return AGENT_MakeJsonRpcResult(response_id, result);
                     };
                     if (parsed.has_id && parsed.id.type != JsonType::Null)
@@ -2568,6 +2651,8 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                         active.last_stop_kind = "step";
                         active.last_stop_breakpoint_id.clear();
                         active.has_last_stop_breakpoint_address = false;
+                        active.has_last_watchpoint_hit = false;
+                        active.has_last_watchpoint_registers = false;
                         active.last_stop_segment = dispatch_registers.cs;
                         active.last_stop_instruction_pointer = dispatch_registers.instruction_pointer;
                         ++active.state_revision;
@@ -3278,6 +3363,8 @@ void AgentServer::CompleteTargetTerminationOnEmulationThread(const std::shared_p
     active.last_stop_kind = "session_stop";
     active.last_stop_breakpoint_id.clear();
     active.has_last_stop_breakpoint_address = false;
+    active.has_last_watchpoint_hit = false;
+    active.has_last_watchpoint_registers = false;
     ++active.state_revision;
     for (std::map<std::string, Impl::Operation>::iterator item = active.operations.begin(); item != active.operations.end(); ++item) {
         if (!item->second.complete) {
@@ -3299,6 +3386,12 @@ void AgentServer::OnDebuggerStopped(const std::shared_ptr<Impl>& impl,
         return;
     AgentRuntime& adapter = *impl->runtime;
     const std::uintptr_t native_breakpoint = adapter.ConsumeLastBreakpointHandle();
+    WatchpointHit watchpoint_hit;
+    const bool has_watchpoint_hit = adapter.ConsumeLastWatchpointHit(&watchpoint_hit);
+    RegisterSnapshot watchpoint_registers;
+    std::string watchpoint_register_error;
+    const bool has_watchpoint_registers = has_watchpoint_hit &&
+            adapter.GetRegisters(&watchpoint_registers, &watchpoint_register_error);
     std::vector<TraceSample> trace_samples;
     bool native_trace_active = false;
     std::string trace_error;
@@ -3340,6 +3433,8 @@ void AgentServer::OnDebuggerStopped(const std::shared_ptr<Impl>& impl,
     impl->session->last_stop_instruction_pointer = instruction_pointer;
     impl->session->last_stop_breakpoint_id.clear();
     impl->session->has_last_stop_breakpoint_address = false;
+    impl->session->has_last_watchpoint_hit = false;
+    impl->session->has_last_watchpoint_registers = false;
     if (!startup && impl->session->last_stop_kind == "breakpoint" && native_breakpoint != 0) {
         for (std::map<std::string, Impl::Breakpoint>::iterator item = impl->session->breakpoints.begin();
              item != impl->session->breakpoints.end(); ++item) {
@@ -3348,6 +3443,14 @@ void AgentServer::OnDebuggerStopped(const std::shared_ptr<Impl>& impl,
             impl->session->last_stop_breakpoint_id = item->second.id;
             impl->session->last_stop_breakpoint_address = item->second.native.address;
             impl->session->has_last_stop_breakpoint_address = true;
+            if (has_watchpoint_hit && watchpoint_hit.handle == native_breakpoint) {
+                impl->session->last_watchpoint_hit = watchpoint_hit;
+                impl->session->has_last_watchpoint_hit = true;
+                if (has_watchpoint_registers) {
+                    impl->session->last_watchpoint_registers = watchpoint_registers;
+                    impl->session->has_last_watchpoint_registers = true;
+                }
+            }
             if (item->second.native.once)
                 impl->session->breakpoints.erase(item);
             break;
@@ -3404,6 +3507,8 @@ void AgentServer::OnProgramExited(const std::shared_ptr<Impl>& impl,
     active.last_stop_kind = "program_exit";
     active.last_stop_breakpoint_id.clear();
     active.has_last_stop_breakpoint_address = false;
+    active.has_last_watchpoint_hit = false;
+    active.has_last_watchpoint_registers = false;
     active.pending_stop_kind.clear();
     ++active.state_revision;
     for (std::map<std::string, Impl::Operation>::iterator item = active.operations.begin();

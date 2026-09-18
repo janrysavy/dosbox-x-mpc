@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -87,6 +89,47 @@ def _hex_argument(value: str | int, width: int) -> str:
 
 
 @dataclass(frozen=True)
+class WatchpointAccess:
+    kind: str
+    address: MemoryAddress
+    instruction_address: MemoryAddress
+    before: bytes
+    after: bytes
+
+    @classmethod
+    def from_rpc(cls, value: Mapping[str, Any]) -> "WatchpointAccess":
+        kind = _string(value.get("kind"), "stop_reason.access.kind")
+        if kind not in ("read", "write"):
+            raise ValueError("stop_reason.access.kind must be read or write")
+        try:
+            before = base64.b64decode(
+                _string(value.get("before_base64"), "stop_reason.access.before_base64"),
+                validate=True,
+            )
+            after = base64.b64decode(
+                _string(value.get("after_base64"), "stop_reason.access.after_base64"),
+                validate=True,
+            )
+        except (ValueError, binascii.Error) as error:
+            raise ValueError("stop_reason.access contains invalid base64") from error
+        byte_count = _integer(value.get("byte_count"), "stop_reason.access.byte_count")
+        if len(before) != byte_count or len(after) != byte_count:
+            raise ValueError("stop_reason.access byte_count does not match its values")
+        return cls(
+            kind=kind,
+            address=MemoryAddress.from_rpc(
+                _mapping(value.get("address"), "stop_reason.access.address")
+            ),
+            instruction_address=MemoryAddress.from_rpc(
+                _mapping(value.get("instruction_address"),
+                         "stop_reason.access.instruction_address")
+            ),
+            before=before,
+            after=after,
+        )
+
+
+@dataclass(frozen=True)
 class StopReason:
     kind: str
     address: MemoryAddress | None = None
@@ -94,6 +137,8 @@ class StopReason:
     psp: int | None = None
     exit_code: int | None = None
     tsr: bool | None = None
+    access: WatchpointAccess | None = None
+    registers: RegisterSnapshot | None = None
 
     @classmethod
     def from_rpc(cls, value: Mapping[str, Any]) -> "StopReason":
@@ -101,6 +146,8 @@ class StopReason:
         psp = value.get("psp")
         exit_code = value.get("exit_code")
         tsr = value.get("tsr")
+        access = value.get("access")
+        registers = value.get("registers")
         return cls(
             kind=_string(value.get("kind"), "stop_reason.kind"),
             address=MemoryAddress.from_rpc(_mapping(address, "stop_reason.address")) if address is not None else None,
@@ -108,6 +155,12 @@ class StopReason:
             psp=_integer(psp, "stop_reason.psp") if psp is not None else None,
             exit_code=_integer(exit_code, "stop_reason.exit_code") if exit_code is not None else None,
             tsr=tsr if isinstance(tsr, bool) else None,
+            access=WatchpointAccess.from_rpc(
+                _mapping(access, "stop_reason.access")
+            ) if access is not None else None,
+            registers=RegisterSnapshot.from_rpc(
+                _mapping(registers, "stop_reason.registers")
+            ) if registers is not None else None,
         )
 
 
@@ -141,6 +194,23 @@ class RegisterSnapshot:
     flags: str
     cpu_mode: str
     state_revision: int
+    phase: str | None = None
+
+    @classmethod
+    def from_rpc(cls, value: Mapping[str, Any]) -> "RegisterSnapshot":
+        phase = value.get("phase")
+        return cls(
+            general=dict(_mapping(value.get("general"), "registers.general")),
+            segments=dict(_mapping(value.get("segments"), "registers.segments")),
+            instruction_pointer=_string(
+                value.get("instruction_pointer"), "registers.instruction_pointer"
+            ),
+            flags=_string(value.get("flags"), "registers.flags"),
+            cpu_mode=_string(value.get("cpu_mode"), "registers.cpu_mode"),
+            state_revision=_integer(value.get("state_revision", 0),
+                                    "registers.state_revision"),
+            phase=_string(phase, "registers.phase") if phase is not None else None,
+        )
 
 
 @dataclass(frozen=True)
@@ -206,6 +276,7 @@ class Breakpoint:
     kind: str
     address: MemoryAddress
     once: bool
+    length: int = 1
     enabled: bool = True
 
 

@@ -46,6 +46,23 @@ bool DEBUG_AgentCanStartTarget(void);
 uint64_t DEBUG_AgentEntryBreakpointSequence(void);
 bool DEBUG_AgentCreateExecutionBreakpoint(uint16_t seg, uint32_t off, bool once, uintptr_t* handle);
 bool DEBUG_AgentCreateMemoryBreakpoint(uint16_t seg, uint32_t off, bool protected_mode, bool linear, uintptr_t* handle);
+struct DEBUG_AgentWatchpointHit {
+    uintptr_t handle = 0;
+    bool write = false;
+    uint32_t linear_address = 0;
+    uint8_t byte_count = 0;
+    uint16_t instruction_cs = 0;
+    uint32_t instruction_ip = 0;
+    uint8_t before[4] = {};
+    uint8_t after[4] = {};
+};
+bool DEBUG_AgentCreateAccessWatchpoint(uint32_t linear_address,
+                                       uint32_t length,
+                                       bool on_read,
+                                       bool on_write,
+                                       bool once,
+                                       uintptr_t* handle);
+bool DEBUG_AgentConsumeWatchpointHit(DEBUG_AgentWatchpointHit* hit);
 bool DEBUG_AgentDeleteBreakpoint(uintptr_t handle);
 uintptr_t DEBUG_AgentConsumeLastBreakpoint(void);
 void DEBUG_AgentClearLastBreakpoint(void);

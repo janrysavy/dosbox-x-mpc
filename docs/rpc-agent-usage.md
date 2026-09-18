@@ -215,6 +215,7 @@ if not capabilities["debugger"]:
 
 trace_enabled = capabilities["trace"]["cpu"] is True
 memory_breakpoint_enabled = capabilities["breakpoints"]["memory_change"] is True
+exact_watchpoints_enabled = capabilities["breakpoints"]["memory_access"] is True
 ```
 
 不要把 capability 缺失当成普通断点或空 trace；server 会返回 `CapabilityUnavailableError`。
@@ -311,6 +312,45 @@ stopped, after_over = agent.step(session.id, mode="over")
 `into` 进入当前指令的执行路径；`over` 使用 debugger 的现有 step-over 语义越过 call、interrupt 或重复指令的目标。每次返回都包含新的 register snapshot，不需要再次调用 `get_registers`，但可以再读内存验证副作用。
 
 ### 6.6 观察内存变化
+
+Exact access watchpoints are the preferred way to identify the instruction that
+reads or writes a known byte range. They require a heavy-debug build and a
+normal CPU core; launch DOSBox-X with `-set "cpu core=normal"`. Supported
+address spaces are reported by
+`capabilities["breakpoints"]["exact_access_address_spaces"]`.
+
+```python
+watch = agent.create_watchpoint(
+    session.id,
+    "memory_write",  # memory_read and memory_access are also valid
+    MemoryAddress.segmented(regs.segments["ds"], "0x00000200"),
+    length=3,
+    once=True,
+)
+operation = agent.continue_(session.id)
+stopped = agent.wait(session.id, operation.id, timeout_ms=5000).session.stop_reason
+assert stopped.breakpoint_id == watch.id
+print(stopped.access.kind, stopped.access.address)
+print(stopped.access.before.hex(), stopped.access.after.hex())
+print(stopped.access.instruction_address)
+print(stopped.registers.phase, stopped.registers.instruction_pointer)
+```
+
+The stop occurs at the instruction boundary after the matching access. `access`
+names the actual linear address and width, exact old/new bytes, and the accessing
+instruction's CS:IP. `registers` is explicitly marked `phase=after_instruction`.
+For reads, old and new bytes are equal. The watched range may be wider than the
+individual access; overlap is sufficient. Physical-address exact watches are
+rejected. A one-shot watch is removed before the stop is reported.
+
+The normal core routes instruction fetches through the same memory access
+helpers. A `memory_read` watch whose range overlaps executing code can therefore
+stop on the instruction fetch itself. Use execution breakpoints for code and
+exact read watchpoints for data ranges.
+
+Write watchpoints obtain the old value with a suppressed observer read immediately
+before the write. Use them for RAM and VRAM analysis; memory-mapped devices whose
+read operation has side effects are outside this evidence contract.
 
 优先使用已知代码位置的 execution breakpoint 和前后内存快照。heavy-debug build 还可以使用 memory-change breakpoint：
 

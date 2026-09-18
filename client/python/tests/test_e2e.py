@@ -108,6 +108,72 @@ def main() -> int:
 
         session = client.start("AGENTFIX.COM")
         session_id = session.id
+        entry_registers = client.get_registers(session.id)
+        data_address = MemoryAddress.segmented(entry_registers.segments["ds"], "0x00000200")
+        original_data = client.read_memory(session.id, data_address, 3).data
+        write_watch = client.create_watchpoint(
+            session.id,
+            "memory_write",
+            MemoryAddress.segmented(entry_registers.segments["ds"], "0x00000201"),
+            length=2,
+            once=True,
+        )
+        if write_watch.length != 2 or not write_watch.once:
+            raise AssertionError(f"memory-write watchpoint metadata mismatch: {write_watch}")
+        operation = client.continue_(session.id)
+        write_stop = client.wait(session.id, operation.id, 10000).session.stop_reason
+        if write_stop is None or write_stop.breakpoint_id != write_watch.id or write_stop.access is None:
+            raise AssertionError(f"memory-write watchpoint did not report typed access evidence: {write_stop}")
+        expected_linear = (int(entry_registers.segments["ds"], 16) << 4) + 0x0201
+        if (write_stop.access.kind != "write" or
+                int(write_stop.access.address.offset, 16) != expected_linear or
+                write_stop.access.before != original_data[1:3] or
+                write_stop.access.after != b"CB" or
+                write_stop.access.instruction_address.segment != entry_registers.segments["cs"] or
+                write_stop.access.instruction_address.offset != "0x0000010C"):
+            raise AssertionError(f"memory-write evidence mismatch: {write_stop.access}")
+        if (write_stop.registers is None or
+                write_stop.registers.phase != "after_instruction" or
+                write_stop.registers.instruction_pointer != "0x00000111" or
+                write_stop.registers.general["esi"] != "0x00000200"):
+            raise AssertionError(f"memory-write post-instruction registers mismatch: {write_stop.registers}")
+
+        read_watch = client.create_watchpoint(
+            session.id,
+            "memory_read",
+            data_address,
+            once=True,
+        )
+        operation = client.continue_(session.id)
+        read_stop = client.wait(session.id, operation.id, 10000).session.stop_reason
+        if read_stop is None or read_stop.breakpoint_id != read_watch.id or read_stop.access is None:
+            raise AssertionError(f"memory-read watchpoint did not report typed access evidence: {read_stop}")
+        if (read_stop.access.kind != "read" or
+                read_stop.access.before != b"A" or
+                read_stop.access.after != b"A" or
+                read_stop.access.instruction_address.segment != entry_registers.segments["cs"] or
+                read_stop.access.instruction_address.offset != "0x00000111"):
+            raise AssertionError(f"memory-read evidence mismatch: {read_stop.access}")
+        if (read_stop.registers is None or
+                read_stop.registers.phase != "after_instruction" or
+                read_stop.registers.instruction_pointer != "0x00000113" or
+                int(read_stop.registers.general["eax"], 16) & 0xff != 0x41):
+            raise AssertionError(f"memory-read post-instruction registers mismatch: {read_stop.registers}")
+        if client.list_breakpoints(session.id):
+            raise AssertionError("one-shot watchpoints remained after their matching accesses")
+        print(
+            "WATCHPOINT evidence: "
+            f"write {write_stop.access.instruction_address.segment}:0x0000010C "
+            f"linear={write_stop.access.address.offset} "
+            f"old={write_stop.access.before.hex()} new={write_stop.access.after.hex()} post_ip=0x00000111; "
+            f"read {read_stop.access.instruction_address.segment}:0x00000111 "
+            f"value={read_stop.access.after.hex()} post_ip=0x00000113."
+        )
+        stop = client.stop(session.id)
+        client.wait(session.id, stop.id, 10000)
+
+        session = client.start("AGENTFIX.COM")
+        session_id = session.id
         status = client.status(session.id)
         if status.target_psp is None:
             raise AssertionError("session.status did not report the target PSP")
@@ -151,7 +217,8 @@ def main() -> int:
             race_kinds.add(race_result.stop_reason.kind)
 
         print(
-            "RPC-E02 passed: client operations, controller stop, natural DOS exit, child-PSP filtering, "
+            "RPC-E02 passed: client operations, exact read/write watchpoints, controller stop, "
+            "natural DOS exit, child-PSP filtering, "
             f"and 8 continue/stop races ({sorted(race_kinds)}) passed."
         )
         return 0

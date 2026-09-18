@@ -39,6 +39,7 @@ from .models import (
     VideoFrame,
     VideoSnapshot,
     WaitResult,
+    WatchpointAccess,
 )
 
 __all__ = [
@@ -49,5 +50,5 @@ __all__ = [
     "Operation", "OperationTimeoutError", "OutputPage", "OutputRecord", "RegisterSnapshot",
     "RequestIdConflictError", "RequestTooLargeError", "Session", "SessionBusyError", "SessionNotFoundError",
     "SnapshotBlock", "StopReason", "TargetExitedError", "TargetNotStoppedError", "TargetRunningError", "TraceEvent",
-    "TracePage", "VideoFrame", "VideoSnapshot", "WaitResult",
+    "TracePage", "VideoFrame", "VideoSnapshot", "WaitResult", "WatchpointAccess",
 ]

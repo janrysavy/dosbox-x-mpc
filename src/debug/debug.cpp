@@ -25,6 +25,7 @@
 #include <vector>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <string>
 #include <sstream>
 using namespace std;
@@ -626,7 +627,7 @@ static void AnnotateDirectBranch(char* line, const size_t line_size)
 bool mustCompleteInstruction = false;
 bool skipFirstInstruction = false;
 
-enum EBreakpoint { BKPNT_UNKNOWN, BKPNT_PHYSICAL, BKPNT_INTERRUPT, BKPNT_MEMORY, BKPNT_MEMORY_PROT, BKPNT_MEMORY_LINEAR, BKPNT_MEMORY_FREEZE };
+enum EBreakpoint { BKPNT_UNKNOWN, BKPNT_PHYSICAL, BKPNT_INTERRUPT, BKPNT_MEMORY, BKPNT_MEMORY_PROT, BKPNT_MEMORY_LINEAR, BKPNT_MEMORY_FREEZE, BKPNT_MEMORY_ACCESS };
 
 #define BPINT_ALL 0x100
 
@@ -642,6 +643,15 @@ public:
 	void					SetType			(EBreakpoint _type)			{ type = _type; };
 	void					SetValue		(uint8_t value)				{ ahValue = value; };
 	void					SetOther		(uint8_t other)				{ alValue = other; };	
+	void                    SetAccess       (uint32_t linear, uint32_t length,
+	                                         bool on_read, bool on_write) {
+		location = linear;
+		offset = linear;
+		watchLength = length;
+		watchRead = on_read;
+		watchWrite = on_write;
+		type = BKPNT_MEMORY_ACCESS;
+	};
 
 	bool					IsActive		(void)						{ return active; };
 	void					Activate		(bool _active);
@@ -659,6 +669,10 @@ public:
 	static CBreakpoint*		AddBreakpoint		(uint16_t seg, uint32_t off, bool once);
 	static CBreakpoint*		AddIntBreakpoint	(uint8_t intNum, uint16_t ah, uint16_t al, bool once);
 	static CBreakpoint*		AddMemBreakpoint	(uint16_t seg, uint32_t off);
+	static CBreakpoint*      AddAccessBreakpoint(uint32_t linear, uint32_t length,
+	                                             bool on_read, bool on_write, bool once);
+	static CBreakpoint*      MatchMemoryAccess  (bool write, uint32_t linear, uint8_t byte_count);
+	static void              RefreshAgentMemoryWatch(void);
 	static void				DeactivateBreakpoints();
 	static void				ActivateBreakpoints	();
 	static void				ActivateBreakpointsExceptAt(PhysPt adr);
@@ -688,6 +702,9 @@ private:
 	uint8_t		intNr;
 	uint16_t		ahValue;
 	uint16_t		alValue;
+	uint32_t        watchLength;
+	bool            watchRead;
+	bool            watchWrite;
 	// Shared
 	bool		active;
 	bool		once;
@@ -696,14 +713,28 @@ private:
 	static CBreakpoint*	lastTriggered;
 #if C_HEAVY_DEBUG
 	friend bool DEBUG_HeavyIsBreakpoint(void);
+	friend void DEBUG_AgentObserveMemoryAccess(bool, LinearPt, uint8_t, uint32_t);
 #endif
 };
+
+#if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
+bool debug_agent_memory_watch_active = false;
+static bool agent_watch_instruction_active = false;
+static bool agent_watch_suppress = false;
+static bool agent_watch_pending = false;
+static bool agent_watch_ready = false;
+static CBreakpoint* agent_watch_breakpoint = nullptr;
+static DEBUG_AgentWatchpointHit agent_watch_hit;
+static uint16_t agent_watch_instruction_cs = 0;
+static uint32_t agent_watch_instruction_ip = 0;
+#endif
 
 CBreakpoint::CBreakpoint(void):type(BKPNT_UNKNOWN),location(0),
 #if !C_HEAVY_DEBUG
 oldData(0xCC),
 #endif
-segment(0),offset(0),intNr(0),ahValue(0),alValue(0),active(false),once(false) { }
+segment(0),offset(0),intNr(0),ahValue(0),alValue(0),watchLength(0),
+watchRead(false),watchWrite(false),active(false),once(false) { }
 
 void CBreakpoint::Activate(bool _active)
 {
@@ -775,6 +806,57 @@ CBreakpoint* CBreakpoint::AddMemBreakpoint(uint16_t seg, uint32_t off)
 	bp->SetType			(BKPNT_MEMORY);
 	BPoints.push_front	(bp);
 	return bp;
+}
+
+CBreakpoint* CBreakpoint::AddAccessBreakpoint(uint32_t linear,
+                                              uint32_t length,
+                                              bool on_read,
+                                              bool on_write,
+                                              bool once)
+{
+	CBreakpoint* bp = new CBreakpoint();
+	bp->SetAccess(linear, length, on_read, on_write);
+	bp->SetOnce(once);
+	// Access watchpoints do not patch guest memory, so they can be armed while
+	// the debugger is stopped. RUN deliberately executes the current
+	// instruction before ActivateBreakpoints(); leaving this inactive would
+	// miss an access made by that first resumed instruction.
+	bp->Activate(true);
+	BPoints.push_front(bp);
+	RefreshAgentMemoryWatch();
+	return bp;
+}
+
+CBreakpoint* CBreakpoint::MatchMemoryAccess(bool write,
+                                           uint32_t linear,
+                                           uint8_t byte_count)
+{
+	const uint64_t access_begin = linear;
+	const uint64_t access_end = access_begin + byte_count;
+	for (std::list<CBreakpoint*>::iterator it = BPoints.begin(); it != BPoints.end(); ++it) {
+		CBreakpoint* bp = *it;
+		if (!bp->IsActive() || bp->GetType() != BKPNT_MEMORY_ACCESS ||
+		    (write ? !bp->watchWrite : !bp->watchRead))
+			continue;
+		const uint64_t watch_begin = bp->GetLocation();
+		const uint64_t watch_end = watch_begin + bp->watchLength;
+		if (access_begin < watch_end && watch_begin < access_end)
+			return bp;
+	}
+	return nullptr;
+}
+
+void CBreakpoint::RefreshAgentMemoryWatch(void)
+{
+#if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
+	debug_agent_memory_watch_active = false;
+	for (std::list<CBreakpoint*>::iterator it = BPoints.begin(); it != BPoints.end(); ++it) {
+		if ((*it)->GetType() == BKPNT_MEMORY_ACCESS) {
+			debug_agent_memory_watch_active = true;
+			break;
+		}
+	}
+#endif
 }
 
 void CBreakpoint::ActivateBreakpoints()
@@ -912,6 +994,13 @@ void CBreakpoint::DeleteAll()
 	}
 	(BPoints.clear)();
 	lastTriggered = nullptr;
+	RefreshAgentMemoryWatch();
+#if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
+	agent_watch_instruction_active = false;
+	agent_watch_pending = false;
+	agent_watch_ready = false;
+	agent_watch_breakpoint = nullptr;
+#endif
 }
 
 
@@ -927,6 +1016,7 @@ bool CBreakpoint::DeleteByIndex(uint16_t index)
 			(BPoints.erase)(i);
 			bp->Activate(false);
 			delete bp;
+			RefreshAgentMemoryWatch();
 			return true;
 		}
 		nr++;
@@ -1005,6 +1095,7 @@ bool CBreakpoint::DeleteBreakpoint(CBreakpoint* breakpoint)
 		if (lastTriggered == breakpoint)
 			lastTriggered = nullptr;
 		delete breakpoint;
+		RefreshAgentMemoryWatch();
 		return true;
 	}
 	return false;
@@ -1217,6 +1308,93 @@ bool DEBUG_AgentCreateMemoryBreakpoint(uint16_t seg,
 	return false;
 #endif
 }
+
+bool DEBUG_AgentCreateAccessWatchpoint(uint32_t linear_address,
+                                       uint32_t length,
+                                       bool on_read,
+                                       bool on_write,
+                                       bool once,
+                                       uintptr_t* handle)
+{
+#if C_HEAVY_DEBUG
+	if (handle == nullptr || length == 0 || (!on_read && !on_write) ||
+	    static_cast<uint64_t>(linear_address) + length >
+	            static_cast<uint64_t>((std::numeric_limits<uint32_t>::max)()) + 1u)
+		return false;
+	CBreakpoint* breakpoint = CBreakpoint::AddAccessBreakpoint(
+	        linear_address, length, on_read, on_write, once);
+	if (breakpoint == nullptr)
+		return false;
+	*handle = reinterpret_cast<uintptr_t>(breakpoint);
+	return true;
+#else
+	(void)linear_address;
+	(void)length;
+	(void)on_read;
+	(void)on_write;
+	(void)once;
+	(void)handle;
+	return false;
+#endif
+}
+
+bool DEBUG_AgentConsumeWatchpointHit(DEBUG_AgentWatchpointHit* hit)
+{
+#if C_HEAVY_DEBUG
+	if (hit == nullptr || !agent_watch_ready)
+		return false;
+	*hit = agent_watch_hit;
+	agent_watch_ready = false;
+	return true;
+#else
+	(void)hit;
+	return false;
+#endif
+}
+
+#if C_HEAVY_DEBUG
+void DEBUG_AgentObserveMemoryAccess(bool write,
+                                    LinearPt address,
+                                    uint8_t byte_count,
+                                    uint32_t value)
+{
+	if (!agent_watch_instruction_active || agent_watch_suppress ||
+	    agent_watch_pending || byte_count == 0 || byte_count > 4)
+		return;
+	CBreakpoint* breakpoint = CBreakpoint::MatchMemoryAccess(
+	        write, static_cast<uint32_t>(address), byte_count);
+	if (breakpoint == nullptr)
+		return;
+
+	DEBUG_AgentWatchpointHit hit;
+	hit.handle = reinterpret_cast<uintptr_t>(breakpoint);
+	hit.write = write;
+	hit.linear_address = static_cast<uint32_t>(address);
+	hit.byte_count = byte_count;
+	hit.instruction_cs = agent_watch_instruction_cs;
+	hit.instruction_ip = agent_watch_instruction_ip;
+	for (uint8_t index = 0; index < byte_count; ++index) {
+		const uint8_t accessed = static_cast<uint8_t>(value >> (index * 8u));
+		if (write) {
+			uint8_t before = 0;
+			agent_watch_suppress = true;
+			const bool failed = mem_readb_checked(address + index, &before);
+			agent_watch_suppress = false;
+			if (failed)
+				return;
+			hit.before[index] = before;
+			hit.after[index] = accessed;
+		} else {
+			hit.before[index] = accessed;
+			hit.after[index] = accessed;
+		}
+	}
+	agent_watch_hit = hit;
+	agent_watch_breakpoint = breakpoint;
+	agent_watch_pending = true;
+	agent_watch_instruction_active = false;
+}
+#endif
 
 bool DEBUG_AgentDeleteBreakpoint(uintptr_t handle)
 {
@@ -6647,6 +6825,20 @@ void DEBUG_HeavyWriteLogInstruction(void) {
 
 bool DEBUG_HeavyIsBreakpoint(void) {
 #if defined(C_DOSBOX_AGENT)
+	agent_watch_instruction_active = false;
+	if (agent_watch_pending) {
+		CBreakpoint* breakpoint = agent_watch_breakpoint;
+		agent_watch_pending = false;
+		agent_watch_ready = true;
+		agent_watch_breakpoint = nullptr;
+		CBreakpoint::lastTriggered = breakpoint;
+		if (breakpoint != nullptr && breakpoint->GetOnce()) {
+			CBreakpoint::BPoints.remove(breakpoint);
+			delete breakpoint;
+			CBreakpoint::RefreshAgentMemoryWatch();
+		}
+		return true;
+	}
 	const bool agent_trace_was_active = agent_trace_active;
     if (agent_trace_active) {
 		DEBUG_AgentCaptureTraceEvent();
@@ -6689,11 +6881,17 @@ bool DEBUG_HeavyIsBreakpoint(void) {
 
 	if (skipFirstInstruction) {
 		skipFirstInstruction = false;
+		agent_watch_instruction_cs = SegValue(cs);
+		agent_watch_instruction_ip = reg_eip;
+		agent_watch_instruction_active = true;
 		return false;
 	}
 	if (!CBreakpoint::BPoints.empty() && CBreakpoint::CheckBreakpoint(SegValue(cs),reg_eip)) {
 		return true;
 	}
+	agent_watch_instruction_cs = SegValue(cs);
+	agent_watch_instruction_ip = reg_eip;
+	agent_watch_instruction_active = true;
 	return false;
 }
 

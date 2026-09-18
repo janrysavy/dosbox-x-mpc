@@ -7,5 +7,7 @@ start:
     mov si, 0x0200
     mov byte [si], 0x41
     mov word [si + 1], 0x4243
+    mov al, [si]
+    mov dx, [si + 1]
     nop
     int 0x20

@@ -39,6 +39,18 @@ bool RequireEmulationThread(std::string* error)
     return false;
 }
 
+#if C_DEBUG
+bool ExactWatchpointCoreSupported()
+{
+    return cpudecoder == &CPU_Core_Normal_Run ||
+           cpudecoder == &CPU_Core286_Normal_Run ||
+           cpudecoder == &CPU_Core8086_Normal_Run ||
+           cpudecoder == &CPU_Core_Prefetch_Run ||
+           cpudecoder == &CPU_Core286_Prefetch_Run ||
+           cpudecoder == &CPU_Core8086_Prefetch_Run;
+}
+#endif
+
 void SetAccessError(MemoryAccessError* access_error,
                     const char* reason,
                     const std::uint32_t failing_offset)
@@ -594,6 +606,7 @@ bool DebuggerAdapter::WriteMemory(const MemoryAddress& address,
 
 bool DebuggerAdapter::CreateBreakpoint(const BreakpointKind kind,
                                        const MemoryAddress& address,
+                                       const std::uint32_t length,
                                        const bool once,
                                        NativeBreakpoint* breakpoint,
                                        MemoryAccessError* access_error,
@@ -605,11 +618,9 @@ bool DebuggerAdapter::CreateBreakpoint(const BreakpointKind kind,
 #if C_DEBUG
     if (access_error != NULL)
         *access_error = MemoryAccessError();
-    std::uint8_t current_value = 0;
     std::vector<std::uint8_t> probe;
-    if (!ReadMemory(address, 1, &probe, access_error, error))
+    if (length == 0 || !ReadMemory(address, length, &probe, access_error, error))
         return false;
-    current_value = probe[0];
 
     std::uintptr_t handle = 0;
     if (kind == BreakpointKind::Execution) {
@@ -623,7 +634,7 @@ bool DebuggerAdapter::CreateBreakpoint(const BreakpointKind kind,
                 *error = "Debugger rejected the execution breakpoint";
             return false;
         }
-    } else {
+    } else if (kind == BreakpointKind::MemoryChange) {
 #if C_HEAVY_DEBUG
         if (once) {
             if (error != NULL)
@@ -642,10 +653,49 @@ bool DebuggerAdapter::CreateBreakpoint(const BreakpointKind kind,
                 *error = "Debugger rejected the memory-change breakpoint";
             return false;
         }
-        (void)current_value;
 #else
         if (error != NULL)
             *error = "Memory-change breakpoints require C_HEAVY_DEBUG";
+        return false;
+#endif
+    } else {
+#if C_HEAVY_DEBUG
+        if (!ExactWatchpointCoreSupported()) {
+            if (error != NULL)
+                *error = "Exact access watchpoints require core=normal";
+            return false;
+        }
+        if (address.space == MemorySpace::Physical) {
+            if (error != NULL)
+                *error = "Exact access watchpoints require segmented or linear addresses";
+            return false;
+        }
+        std::uint32_t linear_address = 0;
+        for (std::uint32_t index = 0; index < length; ++index) {
+            std::uint32_t resolved = 0;
+            if (!ResolveMemoryByte(address, index, &resolved, access_error))
+                return false;
+            if (index == 0)
+                linear_address = resolved;
+            else if (resolved != linear_address + index) {
+                if (error != NULL)
+                    *error = "Exact access watchpoint range is not contiguous in linear memory";
+                return false;
+            }
+        }
+        const bool on_read = kind == BreakpointKind::MemoryRead ||
+                             kind == BreakpointKind::MemoryAccess;
+        const bool on_write = kind == BreakpointKind::MemoryWrite ||
+                              kind == BreakpointKind::MemoryAccess;
+        if (!DEBUG_AgentCreateAccessWatchpoint(linear_address, length, on_read,
+                                               on_write, once, &handle)) {
+            if (error != NULL)
+                *error = "Debugger rejected the exact access watchpoint";
+            return false;
+        }
+#else
+        if (error != NULL)
+            *error = "Exact access watchpoints require C_HEAVY_DEBUG";
         return false;
 #endif
     }
@@ -653,11 +703,13 @@ bool DebuggerAdapter::CreateBreakpoint(const BreakpointKind kind,
     breakpoint->handle = handle;
     breakpoint->kind = kind;
     breakpoint->address = address;
+    breakpoint->length = length;
     breakpoint->once = once;
     return true;
 #else
     (void)kind;
     (void)address;
+    (void)length;
     (void)once;
     (void)breakpoint;
     (void)access_error;
@@ -688,6 +740,30 @@ std::uintptr_t DebuggerAdapter::ConsumeLastBreakpointHandle() const
     return DEBUG_AgentConsumeLastBreakpoint();
 #else
     return 0;
+#endif
+}
+
+bool DebuggerAdapter::ConsumeLastWatchpointHit(WatchpointHit* hit) const
+{
+#if C_DEBUG && C_HEAVY_DEBUG
+    if (hit == NULL)
+        return false;
+    DEBUG_AgentWatchpointHit native;
+    if (!DEBUG_AgentConsumeWatchpointHit(&native))
+        return false;
+    hit->handle = native.handle;
+    hit->write = native.write;
+    hit->address.space = MemorySpace::Linear;
+    hit->address.offset = native.linear_address;
+    hit->instruction_address.space = MemorySpace::Segmented;
+    hit->instruction_address.segment = native.instruction_cs;
+    hit->instruction_address.offset = native.instruction_ip;
+    hit->before.assign(native.before, native.before + native.byte_count);
+    hit->after.assign(native.after, native.after + native.byte_count);
+    return true;
+#else
+    (void)hit;
+    return false;
 #endif
 }
 

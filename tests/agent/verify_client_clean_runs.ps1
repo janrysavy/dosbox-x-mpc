@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$DosboxExecutable = '',
-    [string]$PythonExecutable = 'py',
+    [string]$PythonExecutable = 'python',
     [int]$RunCount = 3
 )
 
@@ -55,7 +55,7 @@ for ($index = 1; $index -le $RunCount; ++$index) {
     [System.IO.File]::WriteAllText($configPath, ($config -join [Environment]::NewLine) + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
     [System.IO.File]::WriteAllText(
         $dosboxConfigPath,
-        "[sdl]$([Environment]::NewLine)fullscreen=false$([Environment]::NewLine)",
+        "[sdl]$([Environment]::NewLine)fullscreen=false$([Environment]::NewLine)[cpu]$([Environment]::NewLine)core=normal$([Environment]::NewLine)",
         [System.Text.UTF8Encoding]::new($false)
     )
 

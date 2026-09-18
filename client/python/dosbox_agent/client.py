@@ -399,21 +399,38 @@ class AgentClient:
 
     def create_execution_breakpoint(self, session_id: str, segment: str | int, offset: str | int, *, once: bool = False,
                                     request_id: str | None = None) -> Breakpoint:
-        return self.create_breakpoint(session_id, "execution", MemoryAddress.segmented(segment, offset), once=once,
+        return self.create_breakpoint(session_id, "execution", MemoryAddress.segmented(segment, offset), length=1, once=once,
                                       request_id=request_id)
 
-    def create_breakpoint(self, session_id: str, kind: str, address: MemoryAddress, *, once: bool = False,
+    def create_watchpoint(self, session_id: str, kind: str, address: MemoryAddress, length: int = 1,
+                          *, once: bool = False, request_id: str | None = None) -> Breakpoint:
+        if kind not in ("memory_read", "memory_write", "memory_access"):
+            raise ValueError("watchpoint kind must be memory_read, memory_write, or memory_access")
+        return self.create_breakpoint(session_id, kind, address, length=length, once=once,
+                                      request_id=request_id)
+
+    def create_breakpoint(self, session_id: str, kind: str, address: MemoryAddress, *, length: int = 1,
+                          once: bool = False,
                           request_id: str | None = None) -> Breakpoint:
-        if kind not in ("execution", "memory_change"):
-            raise ValueError("kind must be execution or memory_change")
+        if kind not in ("execution", "memory_change", "memory_read", "memory_write", "memory_access"):
+            raise ValueError("unsupported breakpoint kind")
+        if not isinstance(length, int) or isinstance(length, bool) or length <= 0:
+            raise ValueError("length must be a positive integer")
         result = self.call("breakpoints.create", {
             "session_id": session_id,
             "kind": kind,
             "address": address.to_rpc(),
+            "length": length,
             "once": once,
         }, request_id)
-        return Breakpoint(_string(result, "breakpoint_id"), _string(result, "kind"),
-                          MemoryAddress.from_rpc(_object(result, "address")), bool(result.get("once")), True)
+        return Breakpoint(
+            id=_string(result, "breakpoint_id"),
+            kind=_string(result, "kind"),
+            address=MemoryAddress.from_rpc(_object(result, "address")),
+            once=bool(result.get("once")),
+            length=_integer(result, "length"),
+            enabled=True,
+        )
 
     def list_breakpoints(self, session_id: str, request_id: str | None = None) -> tuple[Breakpoint, ...]:
         result = self.call("breakpoints.list", {"session_id": session_id}, request_id)
@@ -424,8 +441,12 @@ class AgentClient:
         for value in values:
             entry = _object_value(value, "breakpoint")
             parsed.append(Breakpoint(
-                _string(entry, "breakpoint_id"), _string(entry, "kind"), MemoryAddress.from_rpc(_object(entry, "address")),
-                bool(entry.get("once")), bool(entry.get("enabled")),
+                id=_string(entry, "breakpoint_id"),
+                kind=_string(entry, "kind"),
+                address=MemoryAddress.from_rpc(_object(entry, "address")),
+                once=bool(entry.get("once")),
+                length=_integer(entry, "length"),
+                enabled=bool(entry.get("enabled")),
             ))
         return tuple(parsed)
 

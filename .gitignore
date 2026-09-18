@@ -21,6 +21,8 @@ install-sh
 missing
 config.log
 tests/agent/gtest-results.log
+tests/agent/runtime/
+tests/agent/e2e-clean-*/
 
 *~
 dosbox-x.app/

@@ -289,7 +289,7 @@ JSON number 不能无损表达所有未来 guest address，v1 所有 guest 寄�
 
 | 方法 | 参数 | 成功结果 | 约束 |
 | --- | --- | --- | --- |
-| `agent.capabilities` | 无 | `protocol_version`、`debugger`、`trace.cpu`、`breakpoints.memory_change`、limits、address spaces | 无 session 时也可调用。 |
+| `agent.capabilities` | 无 | `protocol_version`、`debugger`、`trace.cpu`、breakpoint kinds and exact-access constraints、limits、address spaces | 无 session 时也可调用。 |
 | `session.start` | `target.command`、`target.arguments`、`mounts`、`break_at` | `session_id`、`state=stopped`、`stop_reason=startup` | `break_at` v1 固定为 `entry`；目标必须在受控 workdir 内启动。 |
 | `session.status` | `session_id` | state、target、last_stop、state_revision | 任意 session 状态均可调用。 |
 | `session.stop` | `session_id`、`graceful_timeout_ms` | `operation_id` | 只请求停止；结果由 `execution.wait` 获取。 |
@@ -387,11 +387,18 @@ v1 不提供 `state.set_registers`。现有 `SR` 仅可通过 `debugger.execute_
 
 | 方法 | 参数 | 结果 | 规则 |
 | --- | --- | --- | --- |
-| `breakpoints.create` | `session_id`、`kind`、`address`、可选 `once` | 稳定 `breakpoint_id`、规范化地址 | `kind=execution` 为 v1 必选。 |
-| `breakpoints.list` | `session_id` | 所有 breakpoint 的 id、kind、enabled、address、once | 不能解析 `BPLIST` 文本作为正式实现。 |
+| `breakpoints.create` | `session_id`、`kind`、`address`、可选 `length`、可选 `once` | 稳定 `breakpoint_id`、规范化地址和 length | Exact kinds are `memory_read`, `memory_write`, and `memory_access`. |
+| `breakpoints.list` | `session_id` | 所有 breakpoint 的 id、kind、enabled、address、length、once | 不能解析 `BPLIST` 文本作为正式实现。 |
 | `breakpoints.delete` | `session_id`、`breakpoint_id` | 删除确认和 revision | 删除不存在 id 返回 `BREAKPOINT_NOT_FOUND`。 |
 
 `kind=memory_change` 仅在 `agent.capabilities.breakpoints.memory_change=true` 时可创建。实现必须明确 address space 和 CPU mode 的支持范围；不支持时返回 `CAPABILITY_UNAVAILABLE`，不得创建普通执行断点替代。
+
+Exact access watchpoints use `kind=memory_read|memory_write|memory_access`, a
+positive range `length`, and segmented or linear addresses. They are available
+only with `C_HEAVY_DEBUG` on the normal CPU core. A matching stop includes the
+actual access address and width, base64 old/new bytes, accessing CS:IP, and an
+`after_instruction` register snapshot. The observer ignores debugger and RPC
+memory operations because it is armed only while a guest instruction executes.
 
 RPC id 不得复用 `CBreakpoint` 当前显示列表 index。adapter 必须生成 session 内稳定的 `bp-*` id，并维护其与底层 breakpoint object 的映射，避免 `BPDEL` 后索引变化导致误删。
 
@@ -503,6 +510,7 @@ start:
 - [x] `RPC-C08` - breakpoint stable id；创建多个 breakpoint、删除中间一个并列出；其他 id 不改变，按原 id 删除目标不会误删；证据：2026-09-02，Windows named-pipe 创建 `bp-1`、`bp-2`、`bp-3`，删除 `bp-2` 后 list 仍为 `bp-1`、`bp-3`，再按 `bp-3` 删除成功。
 - [x] `RPC-C09` - memory-change breakpoint capability；capability true 的 build 使用实际底层支持的 CPU mode 验证一次触发；capability false 的 build 返回 `CAPABILITY_UNAVAILABLE`，不得转换为 execution breakpoint；证据：2026-09-02，heavy build 在 real mode 对 `DS:0200` 创建 `bp-1` 并由 fixture 写入实际触发；`Agent Debug No Heavy SDL2|x64` capability 返回 `memory_change=false`，同一 create 返回 `CAPABILITY_UNAVAILABLE`。
 - [x] `RPC-C10` - `session.stop`; stop/wait is exercised from both running and stopped states; the final state is `exited`, and repeated stop is idempotent. Evidence: the Windows named-pipe tests return `kind=session_stop` for controller termination and `op-stop-complete` when stopped again after exit.
+- [x] `RPC-C11` - exact memory access watchpoints; `AGENTFIX.COM` writes two bytes at `DS:0201`, then reads `DS:0200`. A write watch reports instruction `CS:010C`, the bytes before the instruction and `43 42` after it, and post-IP `0111`; a read watch reports instruction `CS:0111`, value `41` before/after, and post-IP `0113`. Both are one-shot and absent from the next list. Evidence: 2026-09-18, `verify_client_clean_runs.ps1` completed against three fresh runtimes and the committed Turbo Pascal probe transcript separately reports its B800 writer at `08AB:0028`, old `3E`, new `20`, post-IP `002B`.
 
 ### 阶段 D：输出、trace 和兼容命令
 
@@ -514,7 +522,7 @@ start:
 
 ### 阶段 E：Client 和端到端
 
-- [x] `RPC-E01` - Python client unit tests；执行 `py -m unittest discover -s client\python\tests -t client\python -v`；退出码为 0，覆盖 model、base64、error mapping、request id retry；证据：2026-09-02，3 个 unittest 全部通过；覆盖显式 dotenv 相对路径解析、全部 v1 client method 的 typed response、base64 写入、`TARGET_RUNNING` error mapping 和相同 `request_id` 的显式重试。
+- [x] `RPC-E01` - Python client unit tests；执行 `python -m unittest discover -s client\python\tests -t client\python -v`；退出码为 0，覆盖 model、base64、error mapping、request id retry；证据：2026-09-18，9 个 unittest 全部通过，包括 typed exact-watchpoint evidence、binary length validation and malformed base64 rejection。
 - [x] `RPC-E02` - End-to-end fixture; run `python client\python\tests\test_e2e.py --config tests\agent\agent-test.env`. It covers start, breakpoint, continue, wait, register and memory access, step, controller stop, natural DOS exit, child-PSP filtering, and continue/stop race ordering. A passing run exits zero.
 - [x] `RPC-E03` - DOSBox-X 既有单元测试未回归；执行 `& '.\bin\x64\Agent Debug SDL2\dosbox-x.exe' -tests`；退出码为 0 且输出 `Unit test completed: success`；证据：2026-09-02，`-tests` 退出码为 0；当前 Windows GUI build 不向调用 PowerShell 转发测试日志，`shell.cpp` 的 `RUN_ALL_TESTS()` 返回值为进程退出状态。
 - [x] `RPC-E04` - 干净运行可重复；执行 `if (Test-Path tests\agent\runtime) { Remove-Item -Recurse -Force tests\agent\runtime }; New-Item -ItemType Directory -Path tests\agent\runtime` 后，连续运行 E02 三次；三次均通过，trace 和输出无跨运行数据；证据：2026-09-02，`tests\agent\verify_client_clean_runs.ps1` 创建三个此前不存在的独立 runtime/config 目录并串行运行 E02 三次，三次均通过；每次 E2E 断言 output sequence 从 1 开始、trace sequence 恰为 1、2。

@@ -168,6 +168,9 @@ TEST(AgentProtocol, ReportsBuildCapabilitiesAndLimits)
     EXPECT_NE(std::string::npos, response.find("\"debugger\":true"));
 #ifdef C_HEAVY_DEBUG
     EXPECT_NE(std::string::npos, response.find("\"cpu\":true"));
+    EXPECT_NE(std::string::npos, response.find("\"memory_read\":true"));
+    EXPECT_NE(std::string::npos, response.find("\"memory_write\":true"));
+    EXPECT_NE(std::string::npos, response.find("\"memory_access\":true"));
 #else
     EXPECT_NE(std::string::npos, response.find("\"cpu\":false"));
     EXPECT_NE(std::string::npos, server.HandleJsonRpc(
@@ -178,6 +181,34 @@ TEST(AgentProtocol, ReportsBuildCapabilitiesAndLimits)
     EXPECT_NE(std::string::npos, response.find("\"physical\""));
     EXPECT_NE(std::string::npos, response.find("\"max_memory_read_bytes\":64"));
     EXPECT_NE(std::string::npos, response.find("\"snapshot\":true"));
+    EXPECT_NE(std::string::npos, response.find("\"exact_access_requires_normal_core\":true"));
+}
+
+TEST(AgentProtocol, ValidatesExactWatchpointKindsAndLengthsBeforeDispatch)
+{
+    dosbox_agent::AgentServer server;
+    std::string error;
+    ASSERT_TRUE(server.StartForTest(MakeTestConfig(), &error)) << error;
+    StartFixtureSession(&server);
+
+    const std::string invalid_execution = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"execution-length\",\"method\":\"breakpoints.create\","
+            "\"params\":{\"session_id\":\"ses-1\",\"kind\":\"execution\",\"length\":2,"
+            "\"address\":{\"space\":\"segmented\",\"segment\":\"0x1000\",\"offset\":\"0x00000100\"}}}");
+    EXPECT_NE(std::string::npos, invalid_execution.find("\"code\":-32602"));
+    EXPECT_NE(std::string::npos, invalid_execution.find("require length 1"));
+
+    const std::string empty_watch = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"empty-watch\",\"method\":\"breakpoints.create\","
+            "\"params\":{\"session_id\":\"ses-1\",\"kind\":\"memory_read\",\"length\":0,"
+            "\"address\":{\"space\":\"linear\",\"offset\":\"0x00010200\"}}}");
+    EXPECT_NE(std::string::npos, empty_watch.find("\"code\":-32602"));
+
+    const std::string oversized_watch = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"large-watch\",\"method\":\"breakpoints.create\","
+            "\"params\":{\"session_id\":\"ses-1\",\"kind\":\"memory_access\",\"length\":65,"
+            "\"address\":{\"space\":\"linear\",\"offset\":\"0x00010200\"}}}");
+    EXPECT_NE(std::string::npos, oversized_watch.find("REQUEST_TOO_LARGE"));
 }
 
 TEST(AgentVideo, ReturnsOneAtomicTypedSnapshotAndRejectsRunningTargets)

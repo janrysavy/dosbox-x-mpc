@@ -1319,16 +1319,16 @@ void MEM_A20_Enable(bool enabled) {
 
 /* Memory access functions */
 uint16_t mem_unalignedreadw(LinearPt address) {
-    uint16_t ret = (uint16_t)mem_readb_inline(address);
-    ret       |= (uint16_t)mem_readb_inline(address+1u) << 8u;
+    uint16_t ret = (uint16_t)mem_readb_unobserved_inline(address);
+    ret       |= (uint16_t)mem_readb_unobserved_inline(address+1u) << 8u;
     return ret;
 }
 
 uint32_t mem_unalignedreadd(LinearPt address) {
-    uint32_t ret = (uint32_t)mem_readb_inline(address   );
-    ret       |= (uint32_t)mem_readb_inline(address+1u) << 8u;
-    ret       |= (uint32_t)mem_readb_inline(address+2u) << 16u;
-    ret       |= (uint32_t)mem_readb_inline(address+3u) << 24u;
+    uint32_t ret = (uint32_t)mem_readb_unobserved_inline(address   );
+    ret       |= (uint32_t)mem_readb_unobserved_inline(address+1u) << 8u;
+    ret       |= (uint32_t)mem_readb_unobserved_inline(address+2u) << 16u;
+    ret       |= (uint32_t)mem_readb_unobserved_inline(address+3u) << 24u;
     return ret;
 }
 
