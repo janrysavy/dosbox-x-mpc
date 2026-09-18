@@ -55,6 +55,9 @@
 #include "../ints/int10.h"
 #include "pic.h"
 #include "sdlmain.h"
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+#include "agent/hardware_trace.h"
+#endif
 #if defined(WIN32)
 #include "../dos/cdrom.h"
 #if !defined(HX_DOS) && !defined(_WIN32_WINDOWS)
@@ -1023,6 +1026,81 @@ void DOS_FlushSTDIN(void) {
     }
 }
 
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+static std::string AgentNormalizeDosPath(const char* name)
+{
+    char canonical[DOS_PATHLENGTH] = {};
+    const uint16_t saved_error = dos.errorcode;
+    const bool normalized = DOS_Canonicalize(name, canonical);
+    dos.errorcode = saved_error;
+    return normalized ? std::string(canonical) : std::string(name ? name : "");
+}
+
+static std::string AgentResolvedDosFilePath(DOS_File* file)
+{
+    if (file == NULL || file->GetName() == NULL)
+        return std::string();
+    const std::string name(file->GetName());
+    if (name.size() >= 2 && name[1] == ':')
+        return name;
+    const uint8_t drive = file->GetDrive();
+    if (drive >= DOS_DRIVES)
+        return name;
+    std::string path;
+    path.push_back(static_cast<char>('A' + drive));
+    path += ":\\";
+    path += name;
+    return path;
+}
+
+static dosbox_agent::DosFileTraceEvent AgentDosFileEvent(
+        const dosbox_agent::DosFileTraceEventKind kind,
+        const uint8_t service,
+        const uint16_t handle)
+{
+    dosbox_agent::DosFileTraceEvent event;
+    event.kind = kind;
+    event.target_psp = dos.psp();
+    event.service = service;
+    event.handle = handle;
+    event.caller_return_address.space = dosbox_agent::MemorySpace::Segmented;
+    event.caller_return_address.offset = real_readw(SegValue(ss), reg_sp);
+    event.caller_return_address.segment = real_readw(SegValue(ss), reg_sp + 2u);
+    const uint32_t system_handle = handle == 0xffff ? DOS_FILES : RealHandle(handle);
+    if (system_handle < DOS_FILES && Files[system_handle]) {
+        event.system_handle = static_cast<uint16_t>(system_handle);
+        event.path = AgentResolvedDosFilePath(Files[system_handle]);
+        const uint32_t position = Files[system_handle]->GetSeekPos();
+        if (position != 0xffffffffu) {
+            event.has_position_before = true;
+            event.position_before = position;
+        }
+    }
+    return event;
+}
+
+static void AgentFinishDosFileEvent(dosbox_agent::DosFileTraceEvent event,
+                                    const bool success,
+                                    const uint8_t* payload = NULL,
+                                    const std::size_t payload_size = 0)
+{
+    event.success = success;
+    event.error_code = success ? 0 : dos.errorcode;
+    const uint32_t system_handle = event.handle == 0xffff ? DOS_FILES : RealHandle(event.handle);
+    if (system_handle < DOS_FILES && Files[system_handle]) {
+        event.system_handle = static_cast<uint16_t>(system_handle);
+        if (event.path.empty())
+            event.path = AgentResolvedDosFilePath(Files[system_handle]);
+        const uint32_t position = Files[system_handle]->GetSeekPos();
+        if (position != 0xffffffffu) {
+            event.has_position_after = true;
+            event.position_after = position;
+        }
+    }
+    dosbox_agent::AGENT_DosFileTraceObserve(event, payload, payload_size);
+}
+#endif
+
 static Bitu DOS_21Handler(void) {
     bool unmask_irq0 = false;
 
@@ -1917,10 +1995,21 @@ static Bitu DOS_21Handler(void) {
             }
             break;
         case 0x3c:      /* CREATE Create or truncate file */
+		{
 			force_sfn = true;
             unmask_irq0 |= disk_io_unmask_irq0;
             MEM_StrCopy(SegPhys(ds)+reg_dx,name1,DOSNAMEBUF);
-            if (DOS_CreateFile(name1,reg_cx,&reg_ax)) {
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+            dosbox_agent::DosFileTraceEvent create_event = AgentDosFileEvent(
+                    dosbox_agent::DosFileTraceEventKind::Create, 0x3c, 0xffff);
+            create_event.path = AgentNormalizeDosPath(name1);
+#endif
+            const bool created = DOS_CreateFile(name1,reg_cx,&reg_ax);
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+            create_event.handle = created ? reg_ax : 0xffff;
+            AgentFinishDosFileEvent(create_event, created);
+#endif
+            if (created) {
                 diskio_delay_handle(reg_ax, 2048);
                 CALLBACK_SCF(false);
             } else {
@@ -1929,10 +2018,16 @@ static Bitu DOS_21Handler(void) {
             }
 			force_sfn = false;
             break;
+		}
         case 0x3d:      /* OPEN Open existing file */
 		{
             unmask_irq0 |= disk_io_unmask_irq0;
             MEM_StrCopy(SegPhys(ds)+reg_dx,name1,DOSNAMEBUF);
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+            dosbox_agent::DosFileTraceEvent open_event = AgentDosFileEvent(
+                    dosbox_agent::DosFileTraceEventKind::Open, 0x3d, 0xffff);
+            open_event.path = AgentNormalizeDosPath(name1);
+#endif
 #if !defined(OSFREE)
 # if defined(USE_TTF)
             if((IS_DOSV || ttf_dosv) && IS_DOS_JAPANESE) {
@@ -1984,7 +2079,8 @@ static Bitu DOS_21Handler(void) {
 #endif
 			uint8_t oldal=reg_al;
 			force_sfn = true;
-            if (DOS_OpenFile(name1,reg_al,&reg_ax)) {
+            bool opened = DOS_OpenFile(name1,reg_al,&reg_ax);
+            if (opened) {
 #if defined(USE_TTF)
                 if (ttf.inUse&&wpType==1) {
                     int len = (int)strlen(name1);
@@ -1998,6 +2094,7 @@ static Bitu DOS_21Handler(void) {
             } else {
 				force_sfn = false;
 				if (uselfn&&DOS_OpenFile(name1,oldal,&reg_ax)) {
+					opened = true;
 					diskio_delay_handle(reg_ax, 1024);
 					CALLBACK_SCF(false);
 				} else {
@@ -2005,6 +2102,10 @@ static Bitu DOS_21Handler(void) {
                     CALLBACK_SCF(true);
                 }
             }
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+            open_event.handle = opened ? reg_ax : 0xffff;
+            AgentFinishDosFileEvent(open_event, opened);
+#endif
             force_sfn = false;
             break;
 		}
@@ -2029,8 +2130,16 @@ static Bitu DOS_21Handler(void) {
             }
             uint8_t handle = RealHandle(reg_bx);
             uint8_t drive = (handle != 0xff && Files[handle]) ? Files[handle]->GetDrive() : DOS_DRIVES;
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+            dosbox_agent::DosFileTraceEvent close_event = AgentDosFileEvent(
+                    dosbox_agent::DosFileTraceEventKind::Close, 0x3e, reg_bx);
+#endif
             unmask_irq0 |= disk_io_unmask_irq0;
-            if (DOS_CloseFile(reg_bx, false, &reg_al)) {
+            const bool closed = DOS_CloseFile(reg_bx, false, &reg_al);
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+            AgentFinishDosFileEvent(close_event, closed);
+#endif
+            if (closed) {
 #if defined(USE_TTF)
                 if (ttf.inUse&&reg_bx == WPvga512CHMhandle)
                     WPvga512CHMhandle = -1;
@@ -2051,6 +2160,11 @@ static Bitu DOS_21Handler(void) {
                 uint16_t toread=reg_cx;
                 uint32_t handle = RealHandle(reg_bx);
                 bool fRead = false;
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+                dosbox_agent::DosFileTraceEvent read_event = AgentDosFileEvent(
+                        dosbox_agent::DosFileTraceEventKind::Read, 0x3f, reg_bx);
+                read_event.requested_count = reg_cx;
+#endif
 
                 /* if the offset and size exceed the end of the 64KB segment,
                  * truncate the read according to observed MS-DOS 5.0 behavior
@@ -2127,6 +2241,11 @@ static Bitu DOS_21Handler(void) {
                     reg_ax=dos.errorcode;
                     CALLBACK_SCF(true);
                 }
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+                read_event.actual_count = fRead ? toread : 0;
+                AgentFinishDosFileEvent(read_event, fRead,
+                        fRead ? dos_copybuf : NULL, fRead ? toread : 0);
+#endif
                 dos.echo=false;
                 break;
             }
@@ -2135,6 +2254,11 @@ static Bitu DOS_21Handler(void) {
             {
                 uint16_t towrite=reg_cx;
                 bool fWritten;
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+                dosbox_agent::DosFileTraceEvent write_event = AgentDosFileEvent(
+                        dosbox_agent::DosFileTraceEventKind::Write, 0x40, reg_bx);
+                write_event.requested_count = reg_cx;
+#endif
 
                 /* if the offset and size exceed the end of the 64KB segment,
                  * truncate the write according to observed MS-DOS 5.0 READ behavior
@@ -2180,6 +2304,11 @@ static Bitu DOS_21Handler(void) {
                     reg_ax=dos.errorcode;
                     CALLBACK_SCF(true);
                 }
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+                write_event.actual_count = fWritten ? towrite : 0;
+                AgentFinishDosFileEvent(write_event, fWritten,
+                        fWritten ? dos_copybuf : NULL, fWritten ? towrite : 0);
+#endif
                 break;
             }
         case 0x41:                  /* UNLINK Delete file */
@@ -2199,7 +2328,17 @@ static Bitu DOS_21Handler(void) {
             unmask_irq0 |= disk_io_unmask_irq0;
             {
                 uint32_t pos=((uint32_t)reg_cx << 16u) + reg_dx;
-                if (DOS_SeekFile(reg_bx,&pos,reg_al)) {
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+                dosbox_agent::DosFileTraceEvent seek_event = AgentDosFileEvent(
+                        dosbox_agent::DosFileTraceEventKind::Seek, 0x42, reg_bx);
+                seek_event.requested_offset = pos;
+                seek_event.seek_origin = reg_al;
+#endif
+                const bool sought = DOS_SeekFile(reg_bx,&pos,reg_al);
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+                AgentFinishDosFileEvent(seek_event, sought);
+#endif
+                if (sought) {
                     reg_dx=(uint16_t)((unsigned int)pos >> 16u);
                     reg_ax=(uint16_t)(pos & 0xFFFF);
                     diskio_delay_handle(reg_bx, 32);

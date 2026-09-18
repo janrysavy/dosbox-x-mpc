@@ -179,6 +179,59 @@ struct HardwareTracePage {
     std::uint64_t next_cursor = 0;
 };
 
+enum class DosFileTraceEventKind {
+    Open,
+    Create,
+    Read,
+    Write,
+    Seek,
+    Close
+};
+
+struct DosFileTraceConfig {
+    std::size_t capacity = 0;
+    std::size_t payload_preview_bytes = 0;
+    std::uint16_t target_psp = 0;
+};
+
+struct DosFileTraceEvent {
+    std::uint64_t sequence = 0;
+    std::uint64_t correlation_id = 0;
+    std::uint64_t emulated_time_ns = 0;
+    DosFileTraceEventKind kind = DosFileTraceEventKind::Open;
+    std::uint16_t target_psp = 0;
+    std::uint8_t service = 0;
+    MemoryAddress caller_return_address;
+    std::string path;
+    std::uint16_t handle = 0;
+    std::uint16_t system_handle = 0xffff;
+    bool has_position_before = false;
+    std::uint32_t position_before = 0;
+    bool has_position_after = false;
+    std::uint32_t position_after = 0;
+    std::uint32_t requested_count = 0;
+    std::uint32_t actual_count = 0;
+    std::uint32_t requested_offset = 0;
+    std::uint8_t seek_origin = 0;
+    bool success = false;
+    std::uint16_t error_code = 0;
+    std::string payload_sha256;
+    std::vector<std::uint8_t> payload_preview;
+    bool payload_truncated = false;
+};
+
+struct DosFileTracePage {
+    bool active = false;
+    std::size_t capacity = 0;
+    std::size_t payload_preview_bytes = 0;
+    std::uint16_t target_psp = 0;
+    std::uint64_t dropped_event_count = 0;
+    std::uint64_t first_available_sequence = 0;
+    std::vector<DosFileTraceEvent> events;
+    bool has_next_cursor = false;
+    std::uint64_t next_cursor = 0;
+};
+
 struct VideoSnapshot {
     std::uint8_t video_mode = 0;
     std::uint64_t ticks = 0;
@@ -378,6 +431,14 @@ public:
                            bool* cursor_expired,
                            std::string* error) const;
     bool StopHardwareTrace(HardwareTracePage* status, std::string* error) const;
+    bool StartDosFileTrace(const DosFileTraceConfig& config, std::string* error) const;
+    bool ReadDosFileTrace(bool has_cursor,
+                          std::uint64_t cursor,
+                          std::size_t limit,
+                          DosFileTracePage* page,
+                          bool* cursor_expired,
+                          std::string* error) const;
+    bool StopDosFileTrace(DosFileTracePage* status, std::string* error) const;
     bool TerminateTarget(std::string* error) const;
 };
 

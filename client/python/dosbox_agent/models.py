@@ -739,6 +739,44 @@ class HardwareTracePage:
 
 
 @dataclass(frozen=True)
+class DosFileTraceEvent:
+    sequence: int
+    correlation_id: str
+    emulated_time_ns: int
+    kind: str
+    target_psp: str
+    service: str
+    caller_return_address: MemoryAddress
+    path: str
+    handle: str
+    system_handle: str | None
+    position_before: int | None
+    position_after: int | None
+    requested_count: int
+    actual_count: int
+    requested_offset: int
+    seek_origin: int
+    success: bool
+    carry: bool
+    error_code: str
+    payload_sha256: str | None
+    payload_preview: bytes | None
+    payload_truncated: bool
+
+
+@dataclass(frozen=True)
+class DosFileTracePage:
+    active: bool
+    capacity: int
+    payload_preview_bytes: int
+    target_psp: str
+    dropped_event_count: int
+    first_available_sequence: int
+    events: tuple[DosFileTraceEvent, ...]
+    next_cursor: str | None
+
+
+@dataclass(frozen=True)
 class DiagnosticCommandResult:
     accepted: bool
     raw_output: str

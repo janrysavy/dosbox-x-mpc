@@ -487,6 +487,91 @@ TEST(AgentHardwareTrace, BoundsFiltersPagesAndExpiresOverwrittenCursors)
     EXPECT_EQ(1u, stopped.dropped_event_count);
 }
 
+TEST(AgentDosFileTrace, FiltersPspHashesPayloadAndBoundsPages)
+{
+    dosbox_agent::DosFileTraceConfig config;
+    config.capacity = 2;
+    config.payload_preview_bytes = 2;
+    config.target_psp = 0x1234;
+    ASSERT_TRUE(dosbox_agent::AGENT_DosFileTraceStart(config));
+
+    const std::uint8_t payload[] = {'a', 'b', 'c'};
+    dosbox_agent::DosFileTraceEvent ignored;
+    ignored.kind = dosbox_agent::DosFileTraceEventKind::Read;
+    ignored.target_psp = 0x9999;
+    dosbox_agent::AGENT_DosFileTraceObserve(ignored, payload, sizeof(payload));
+
+    for (unsigned int index = 0; index < 3; ++index) {
+        dosbox_agent::DosFileTraceEvent event;
+        event.kind = dosbox_agent::DosFileTraceEventKind::Read;
+        event.target_psp = 0x1234;
+        event.handle = static_cast<std::uint16_t>(index + 1);
+        event.requested_count = sizeof(payload);
+        event.actual_count = sizeof(payload);
+        event.success = true;
+        dosbox_agent::AGENT_DosFileTraceObserve(event, payload, sizeof(payload));
+    }
+
+    dosbox_agent::DosFileTracePage page;
+    bool expired = false;
+    ASSERT_TRUE(dosbox_agent::AGENT_DosFileTraceRead(false, 0, 1, &page, &expired));
+    ASSERT_FALSE(expired);
+    EXPECT_EQ(1u, page.dropped_event_count);
+    EXPECT_EQ(2u, page.first_available_sequence);
+    ASSERT_EQ(1u, page.events.size());
+    EXPECT_EQ(2u, page.events[0].sequence);
+    EXPECT_EQ(2u, page.events[0].correlation_id);
+    EXPECT_EQ("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+              page.events[0].payload_sha256);
+    ASSERT_EQ(2u, page.events[0].payload_preview.size());
+    EXPECT_EQ('a', page.events[0].payload_preview[0]);
+    EXPECT_EQ('b', page.events[0].payload_preview[1]);
+    EXPECT_TRUE(page.events[0].payload_truncated);
+    EXPECT_TRUE(page.has_next_cursor);
+
+    dosbox_agent::DosFileTracePage second;
+    ASSERT_TRUE(dosbox_agent::AGENT_DosFileTraceRead(
+            true, page.next_cursor, 1, &second, &expired));
+    ASSERT_EQ(1u, second.events.size());
+    EXPECT_EQ(3u, second.events[0].sequence);
+    EXPECT_LE(page.events[0].emulated_time_ns, second.events[0].emulated_time_ns);
+
+    dosbox_agent::DosFileTracePage unavailable;
+    EXPECT_FALSE(dosbox_agent::AGENT_DosFileTraceRead(true, 0, 1, &unavailable, &expired));
+    EXPECT_TRUE(expired);
+
+    dosbox_agent::DosFileTracePage stopped;
+    ASSERT_TRUE(dosbox_agent::AGENT_DosFileTraceStop(&stopped));
+    EXPECT_FALSE(stopped.active);
+    EXPECT_EQ(1u, stopped.dropped_event_count);
+}
+
+TEST(AgentDosFileTrace, RpcStartReadAndStopUseTargetPsp)
+{
+    dosbox_agent::AgentServer server;
+    std::string error;
+    ASSERT_TRUE(server.StartForTest(MakeTestConfig(), &error)) << error;
+    StartFixtureSession(&server);
+
+    const std::string start = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"dos-start\",\"method\":\"dos.trace.start\","
+            "\"params\":{\"session_id\":\"ses-1\",\"capacity\":4,\"payload_preview_bytes\":2}}");
+    EXPECT_NE(std::string::npos, start.find("\"active\":true"));
+    EXPECT_NE(std::string::npos, start.find("\"target_psp\":\"0x1000\""));
+
+    const std::string read = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"dos-read\",\"method\":\"dos.trace.read\","
+            "\"params\":{\"session_id\":\"ses-1\",\"cursor\":null,\"limit\":4}}");
+    EXPECT_NE(std::string::npos, read.find("\"events\":[]"));
+    EXPECT_NE(std::string::npos, read.find("\"payload_preview_bytes\":2"));
+
+    const std::string stop = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"dos-stop\",\"method\":\"dos.trace.stop\","
+            "\"params\":{\"session_id\":\"ses-1\"}}");
+    EXPECT_NE(std::string::npos, stop.find("\"active\":false"));
+    server.Stop();
+}
+
 TEST(AgentDos, ReturnsLoaderMetadataAndTypedMcbOwnership)
 {
     dosbox_agent::AgentServer server;

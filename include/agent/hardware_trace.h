@@ -27,6 +27,18 @@ void AGENT_HardwareTraceObserveIrq(HardwareTraceEventKind kind,
                                    std::uint16_t cs,
                                    std::uint32_t instruction_pointer);
 
+bool AGENT_DosFileTraceStart(const DosFileTraceConfig& config);
+bool AGENT_DosFileTraceRead(bool has_cursor,
+                            std::uint64_t cursor,
+                            std::size_t limit,
+                            DosFileTracePage* page,
+                            bool* cursor_expired);
+bool AGENT_DosFileTraceStop(DosFileTracePage* status);
+bool AGENT_DosFileTraceIsActive();
+void AGENT_DosFileTraceObserve(DosFileTraceEvent event,
+                               const std::uint8_t* payload,
+                               std::size_t payload_size);
+
 } // namespace dosbox_agent
 
 #endif

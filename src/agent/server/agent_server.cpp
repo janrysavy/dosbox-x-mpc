@@ -683,7 +683,10 @@ static bool IsKnownMethod(const std::string& method)
            method == "trace.stop" ||
            method == "hardware.trace.start" ||
            method == "hardware.trace.read" ||
-           method == "hardware.trace.stop";
+           method == "hardware.trace.stop" ||
+           method == "dos.trace.start" ||
+           method == "dos.trace.read" ||
+           method == "dos.trace.stop";
 }
 
 } // namespace
@@ -755,6 +758,7 @@ public:
         bool trace_active = false;
         std::size_t trace_event_count = 0;
         HardwareTracePage hardware_trace_page;
+        DosFileTracePage dos_file_trace_page;
         bool cursor_expired = false;
         std::uint64_t emulated_time_ns = 0;
     };
@@ -850,6 +854,7 @@ public:
         std::deque<OutputRecord> output;
         TraceStore trace;
         bool hardware_trace_active = false;
+        bool dos_file_trace_active = false;
         std::string video_snapshot_id;
         std::shared_ptr<VideoSnapshot> video_snapshot;
         std::deque<CachedResponse> completed_requests;
@@ -953,6 +958,11 @@ public:
                                    HardwareTracePage* page, bool* cursor_expired,
                                    std::string* error) const = 0;
     virtual bool StopHardwareTrace(HardwareTracePage* status, std::string* error) const = 0;
+    virtual bool StartDosFileTrace(const DosFileTraceConfig& config, std::string* error) const = 0;
+    virtual bool ReadDosFileTrace(bool has_cursor, std::uint64_t cursor, std::size_t limit,
+                                  DosFileTracePage* page, bool* cursor_expired,
+                                  std::string* error) const = 0;
+    virtual bool StopDosFileTrace(DosFileTracePage* status, std::string* error) const = 0;
     virtual bool TerminateTarget(std::string* error) const = 0;
 };
 
@@ -1010,6 +1020,9 @@ public:
     AGENT_RUNTIME_FORWARD(StartHardwareTrace, bool StartHardwareTrace(const HardwareTraceConfig& config, std::string* error) const, (config, error))
     AGENT_RUNTIME_FORWARD(ReadHardwareTrace, bool ReadHardwareTrace(bool has_cursor, std::uint64_t cursor, std::size_t limit, HardwareTracePage* page, bool* cursor_expired, std::string* error) const, (has_cursor, cursor, limit, page, cursor_expired, error))
     AGENT_RUNTIME_FORWARD(StopHardwareTrace, bool StopHardwareTrace(HardwareTracePage* status, std::string* error) const, (status, error))
+    AGENT_RUNTIME_FORWARD(StartDosFileTrace, bool StartDosFileTrace(const DosFileTraceConfig& config, std::string* error) const, (config, error))
+    AGENT_RUNTIME_FORWARD(ReadDosFileTrace, bool ReadDosFileTrace(bool has_cursor, std::uint64_t cursor, std::size_t limit, DosFileTracePage* page, bool* cursor_expired, std::string* error) const, (has_cursor, cursor, limit, page, cursor_expired, error))
+    AGENT_RUNTIME_FORWARD(StopDosFileTrace, bool StopDosFileTrace(DosFileTracePage* status, std::string* error) const, (status, error))
     AGENT_RUNTIME_FORWARD(TerminateTarget, bool TerminateTarget(std::string* error) const, (error))
 #undef AGENT_RUNTIME_FORWARD
 };
@@ -1321,6 +1334,36 @@ public:
         fake_hardware_trace_active = false;
         return ReadHardwareTrace(false, 0, 1, page, &fake_cursor_expired, NULL);
     }
+    bool StartDosFileTrace(const DosFileTraceConfig& config, std::string*) const override
+    {
+        if (fake_dos_file_trace_active || config.capacity == 0 || config.target_psp == 0)
+            return false;
+        fake_dos_file_trace_active = true;
+        fake_dos_file_trace_config = config;
+        return true;
+    }
+    bool ReadDosFileTrace(bool, std::uint64_t, std::size_t,
+                          DosFileTracePage* page, bool* cursor_expired,
+                          std::string*) const override
+    {
+        if (page == NULL || cursor_expired == NULL || fake_dos_file_trace_config.capacity == 0)
+            return false;
+        *page = DosFileTracePage();
+        page->active = fake_dos_file_trace_active;
+        page->capacity = fake_dos_file_trace_config.capacity;
+        page->payload_preview_bytes = fake_dos_file_trace_config.payload_preview_bytes;
+        page->target_psp = fake_dos_file_trace_config.target_psp;
+        page->first_available_sequence = 1;
+        *cursor_expired = false;
+        return true;
+    }
+    bool StopDosFileTrace(DosFileTracePage* page, std::string*) const override
+    {
+        if (page == NULL || !fake_dos_file_trace_active)
+            return false;
+        fake_dos_file_trace_active = false;
+        return ReadDosFileTrace(false, 0, 1, page, &fake_cursor_expired, NULL);
+    }
 #undef AGENT_RUNTIME_UNAVAILABLE
 
 private:
@@ -1332,6 +1375,8 @@ private:
     mutable InputState fake_input_state;
     mutable bool fake_hardware_trace_active = false;
     mutable std::size_t fake_hardware_trace_capacity = 0;
+    mutable bool fake_dos_file_trace_active = false;
+    mutable DosFileTraceConfig fake_dos_file_trace_config;
     mutable bool fake_cursor_expired = false;
     mutable std::atomic<std::uint64_t> fake_emulated_time_ns{1000000};
     mutable std::atomic<std::uint64_t> fake_time_limit_deadline{0};
@@ -1941,6 +1986,71 @@ static JsonValue HardwareTracePageResult(const HardwareTracePage& page)
     return result;
 }
 
+static const char* DosFileTraceKindName(const DosFileTraceEventKind kind)
+{
+    switch (kind) {
+    case DosFileTraceEventKind::Open: return "open";
+    case DosFileTraceEventKind::Create: return "create";
+    case DosFileTraceEventKind::Read: return "read";
+    case DosFileTraceEventKind::Write: return "write";
+    case DosFileTraceEventKind::Seek: return "seek";
+    case DosFileTraceEventKind::Close: return "close";
+    }
+    return "unknown";
+}
+
+static JsonValue DosFileTraceEventResult(const DosFileTraceEvent& event)
+{
+    JsonValue result = Object();
+    Add(&result, "sequence", Number(event.sequence));
+    Add(&result, "correlation_id", String(FormatCursor("dos-file", event.correlation_id)));
+    Add(&result, "emulated_time_ns", Number(event.emulated_time_ns));
+    Add(&result, "kind", String(DosFileTraceKindName(event.kind)));
+    Add(&result, "target_psp", String(Hex16(event.target_psp)));
+    Add(&result, "service", String(Hex16(event.service)));
+    Add(&result, "caller_return_address", EncodeMemoryAddress(event.caller_return_address));
+    Add(&result, "path", String(event.path));
+    Add(&result, "handle", String(Hex16(event.handle)));
+    Add(&result, "system_handle", event.system_handle == 0xffff ?
+            JsonValue::Null() : String(Hex16(event.system_handle)));
+    Add(&result, "position_before", event.has_position_before ?
+            Number(event.position_before) : JsonValue::Null());
+    Add(&result, "position_after", event.has_position_after ?
+            Number(event.position_after) : JsonValue::Null());
+    Add(&result, "requested_count", Number(event.requested_count));
+    Add(&result, "actual_count", Number(event.actual_count));
+    Add(&result, "requested_offset", Number(event.requested_offset));
+    Add(&result, "seek_origin", Number(event.seek_origin));
+    Add(&result, "success", JsonValue::Bool(event.success));
+    Add(&result, "carry", JsonValue::Bool(!event.success));
+    Add(&result, "error_code", String(Hex16(event.error_code)));
+    Add(&result, "payload_sha256", event.payload_sha256.empty() ?
+            JsonValue::Null() : String(event.payload_sha256));
+    Add(&result, "payload_preview_base64", event.payload_sha256.empty() ?
+            JsonValue::Null() : String(EncodeBase64(event.payload_preview)));
+    Add(&result, "payload_truncated", JsonValue::Bool(event.payload_truncated));
+    return result;
+}
+
+static JsonValue DosFileTracePageResult(const DosFileTracePage& page)
+{
+    JsonValue result = Object();
+    Add(&result, "active", JsonValue::Bool(page.active));
+    Add(&result, "capacity", Number(page.capacity));
+    Add(&result, "payload_preview_bytes", Number(page.payload_preview_bytes));
+    Add(&result, "target_psp", String(Hex16(page.target_psp)));
+    Add(&result, "dropped_event_count", Number(page.dropped_event_count));
+    Add(&result, "first_available_sequence", Number(page.first_available_sequence));
+    JsonValue events = JsonValue::Array();
+    for (std::vector<DosFileTraceEvent>::const_iterator it = page.events.begin();
+         it != page.events.end(); ++it)
+        events.array.push_back(DosFileTraceEventResult(*it));
+    Add(&result, "events", events);
+    Add(&result, "next_cursor", page.has_next_cursor ?
+            String(FormatCursor("dos-file", page.next_cursor)) : JsonValue::Null());
+    return result;
+}
+
 static JsonValue RegistersResult(const RegisterSnapshot& registers,
                                  const AgentServer::Impl::Session& session)
 {
@@ -2271,6 +2381,15 @@ static std::string Capabilities(const AgentConfig& config)
     Add(&hardware_trace, "emulated_timestamp_ns", JsonValue::Bool(true));
     Add(&hardware_trace, "io_address_requires_normal_core", JsonValue::Bool(true));
     Add(&result, "hardware_trace", hardware_trace);
+    JsonValue dos_file_trace = Object();
+    Add(&dos_file_trace, "open_read_write_seek_close", JsonValue::Bool(true));
+    Add(&dos_file_trace, "target_psp_filter", JsonValue::Bool(true));
+    Add(&dos_file_trace, "bounded", JsonValue::Bool(true));
+    Add(&dos_file_trace, "paged_read", JsonValue::Bool(true));
+    Add(&dos_file_trace, "payload_sha256", JsonValue::Bool(true));
+    Add(&dos_file_trace, "payload_preview", JsonValue::Bool(true));
+    Add(&dos_file_trace, "emulated_timestamp_ns", JsonValue::Bool(true));
+    Add(&result, "dos_file_trace", dos_file_trace);
     JsonValue register_write = Object();
     Add(&register_write, "guarded_atomic", JsonValue::Bool(true));
     Add(&register_write, "requires_stopped_target", JsonValue::Bool(true));
@@ -3616,7 +3735,8 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
             response = SessionError(parsed.id, kErrorCapabilityUnavailable,
                                     "Target must be stopped before creating a checkpoint",
                                     "TARGET_NOT_STOPPED", session);
-        } else if (session->trace.IsActive() || session->hardware_trace_active) {
+        } else if (session->trace.IsActive() || session->hardware_trace_active ||
+                   session->dos_file_trace_active) {
             response = Error(parsed.id, kErrorCapabilityUnavailable,
                              "Stop the active trace before creating a checkpoint",
                              "TRACE_ACTIVE");
@@ -3746,7 +3866,8 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
             response = SessionError(parsed.id, kErrorCapabilityUnavailable,
                                     "Target must be stopped before restoring a checkpoint",
                                     "TARGET_NOT_STOPPED", session);
-        } else if (session->trace.IsActive() || session->hardware_trace_active) {
+        } else if (session->trace.IsActive() || session->hardware_trace_active ||
+                   session->dos_file_trace_active) {
             response = Error(parsed.id, kErrorCapabilityUnavailable,
                              "Stop the active trace before restoring a checkpoint",
                              "TRACE_ACTIVE");
@@ -5034,6 +5155,167 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                 response = AGENT_MakeJsonRpcResult(parsed.id, result);
             }
         }
+    } else if (parsed.method == "dos.trace.start") {
+        DosFileTraceConfig dos_config;
+        std::uint32_t capacity = 0;
+        std::uint32_t preview = 64;
+        const JsonValue* capacity_value = parsed.params.Find("capacity");
+        const JsonValue* preview_value = parsed.params.Find("payload_preview_bytes");
+        bool valid = capacity_value != NULL &&
+                     GetUnsignedInteger(*capacity_value, &capacity) && capacity != 0;
+        if (valid && preview_value != NULL)
+            valid = GetUnsignedInteger(*preview_value, &preview);
+        if (!valid || preview > 4096u) {
+            response = InvalidParams(parsed.id,
+                    "dos.trace.start requires capacity>0 and payload_preview_bytes in 0..4096");
+        } else if (capacity > impl->config.max_trace_events) {
+            response = Error(parsed.id, kErrorRequestTooLarge,
+                    "DOS file trace capacity exceeds max_trace_events", "REQUEST_TOO_LARGE");
+        } else if ((session->state != Impl::SessionState::Stopped &&
+                    session->state != Impl::SessionState::Running) || !session->has_target_psp) {
+            response = SessionError(parsed.id, kErrorCommandRejected,
+                    "dos.trace.start requires a live target PSP", "COMMAND_REJECTED", session);
+        } else {
+            dos_config.capacity = capacity;
+            dos_config.payload_preview_bytes = preview;
+            dos_config.target_psp = session->target_psp;
+            const std::shared_ptr<Impl::AdapterOperation> operation(new Impl::AdapterOperation());
+            const std::string session_id = session->id;
+            if (SubmitEmulationCommandLocked(impl, [impl, operation, dos_config](const std::uint64_t) {
+                    std::string error;
+                    const bool success = impl->runtime->StartDosFileTrace(dos_config, &error);
+                    std::lock_guard<std::mutex> guard(operation->mutex);
+                    operation->success = success;
+                    operation->error = error;
+                    operation->done = true;
+                    operation->completed.notify_all();
+                }) == 0) {
+                response = Error(parsed.id, kErrorCommandRejected,
+                        "Emulation-thread bridge is unavailable", "COMMAND_REJECTED");
+            } else {
+                std::unique_lock<std::mutex> operation_lock(operation->mutex);
+                lock.unlock();
+                const bool completed = operation->completed.wait_for(operation_lock,
+                        std::chrono::milliseconds(impl->config.request_timeout_ms),
+                        [operation]() { return operation->done; });
+                lock.lock();
+                if (!RebindSessionAfterWait(impl, session_id, &session, &response, parsed.id))
+                    return response;
+                if (!completed)
+                    response = Error(parsed.id, kErrorOperationTimeout,
+                            "Timed out starting DOS file trace", "OPERATION_TIMEOUT");
+                else if (!operation->success)
+                    response = Error(parsed.id, kErrorCommandRejected,
+                            operation->error, "COMMAND_REJECTED");
+                else {
+                    session->dos_file_trace_active = true;
+                    JsonValue result = SessionResult(*session);
+                    Add(&result, "active", JsonValue::Bool(true));
+                    Add(&result, "capacity", Number(capacity));
+                    Add(&result, "payload_preview_bytes", Number(preview));
+                    Add(&result, "target_psp", String(Hex16(session->target_psp)));
+                    response = AGENT_MakeJsonRpcResult(parsed.id, result);
+                }
+            }
+        }
+    } else if (parsed.method == "dos.trace.read") {
+        bool has_cursor = false;
+        std::uint64_t cursor = 0;
+        std::uint32_t limit = 0;
+        const JsonValue* limit_value = parsed.params.Find("limit");
+        if (!ParseCursor(parsed.params.Find("cursor"), "dos-file", &has_cursor, &cursor) ||
+            limit_value == NULL || !GetUnsignedInteger(*limit_value, &limit) || limit == 0 ||
+            limit > impl->config.max_trace_events) {
+            response = InvalidParams(parsed.id,
+                    "dos.trace.read requires cursor=null|dos-file-N and a bounded positive limit");
+        } else {
+            const std::shared_ptr<Impl::AdapterOperation> operation(new Impl::AdapterOperation());
+            const std::string session_id = session->id;
+            if (SubmitEmulationCommandLocked(impl, [impl, operation, has_cursor, cursor, limit](const std::uint64_t) {
+                    std::string error;
+                    DosFileTracePage page;
+                    bool expired = false;
+                    const bool success = impl->runtime->ReadDosFileTrace(
+                            has_cursor, cursor, limit, &page, &expired, &error);
+                    std::lock_guard<std::mutex> guard(operation->mutex);
+                    operation->success = success;
+                    operation->error = error;
+                    operation->dos_file_trace_page = page;
+                    operation->cursor_expired = expired;
+                    operation->done = true;
+                    operation->completed.notify_all();
+                }) == 0) {
+                response = Error(parsed.id, kErrorCommandRejected,
+                        "Emulation-thread bridge is unavailable", "COMMAND_REJECTED");
+            } else {
+                std::unique_lock<std::mutex> operation_lock(operation->mutex);
+                lock.unlock();
+                const bool completed = operation->completed.wait_for(operation_lock,
+                        std::chrono::milliseconds(impl->config.request_timeout_ms),
+                        [operation]() { return operation->done; });
+                lock.lock();
+                if (!RebindSessionAfterWait(impl, session_id, &session, &response, parsed.id))
+                    return response;
+                if (!completed)
+                    response = Error(parsed.id, kErrorOperationTimeout,
+                            "Timed out reading DOS file trace", "OPERATION_TIMEOUT");
+                else if (operation->cursor_expired)
+                    response = Error(parsed.id, kErrorCursorExpired,
+                            "DOS file trace cursor is no longer available", "CURSOR_EXPIRED");
+                else if (!operation->success)
+                    response = Error(parsed.id, kErrorCommandRejected,
+                            operation->error, "COMMAND_REJECTED");
+                else {
+                    JsonValue result = SessionResult(*session);
+                    JsonValue page = DosFileTracePageResult(operation->dos_file_trace_page);
+                    for (std::map<std::string, JsonValue>::const_iterator it = page.object.begin();
+                         it != page.object.end(); ++it)
+                        Add(&result, it->first.c_str(), it->second);
+                    response = AGENT_MakeJsonRpcResult(parsed.id, result);
+                }
+            }
+        }
+    } else if (parsed.method == "dos.trace.stop") {
+        const std::shared_ptr<Impl::AdapterOperation> operation(new Impl::AdapterOperation());
+        const std::string session_id = session->id;
+        if (SubmitEmulationCommandLocked(impl, [impl, operation](const std::uint64_t) {
+                std::string error;
+                DosFileTracePage status;
+                const bool success = impl->runtime->StopDosFileTrace(&status, &error);
+                std::lock_guard<std::mutex> guard(operation->mutex);
+                operation->success = success;
+                operation->error = error;
+                operation->dos_file_trace_page = status;
+                operation->done = true;
+                operation->completed.notify_all();
+            }) == 0) {
+            response = Error(parsed.id, kErrorCommandRejected,
+                    "Emulation-thread bridge is unavailable", "COMMAND_REJECTED");
+        } else {
+            std::unique_lock<std::mutex> operation_lock(operation->mutex);
+            lock.unlock();
+            const bool completed = operation->completed.wait_for(operation_lock,
+                    std::chrono::milliseconds(impl->config.request_timeout_ms),
+                    [operation]() { return operation->done; });
+            lock.lock();
+            if (!RebindSessionAfterWait(impl, session_id, &session, &response, parsed.id))
+                return response;
+            if (!completed)
+                response = Error(parsed.id, kErrorOperationTimeout,
+                        "Timed out stopping DOS file trace", "OPERATION_TIMEOUT");
+            else if (!operation->success)
+                response = Error(parsed.id, kErrorCommandRejected,
+                        operation->error, "COMMAND_REJECTED");
+            else {
+                session->dos_file_trace_active = false;
+                JsonValue result = SessionResult(*session);
+                JsonValue page = DosFileTracePageResult(operation->dos_file_trace_page);
+                for (std::map<std::string, JsonValue>::const_iterator it = page.object.begin();
+                     it != page.object.end(); ++it)
+                    Add(&result, it->first.c_str(), it->second);
+                response = AGENT_MakeJsonRpcResult(parsed.id, result);
+            }
+        }
     } else if (parsed.method == "trace.start") {
         std::string detail;
         const JsonValue* instruction_count_value = parsed.params.Find("instruction_count");
@@ -5424,6 +5706,12 @@ void AgentServer::CompleteTargetTerminationOnEmulationThread(const std::shared_p
     active.state = Impl::SessionState::Exited;
     active.trace.Stop();
     active.hardware_trace_active = false;
+    if (active.dos_file_trace_active) {
+        DosFileTracePage dos_status;
+        std::string cleanup_error;
+        (void)adapter.StopDosFileTrace(&dos_status, &cleanup_error);
+        active.dos_file_trace_active = false;
+    }
     active.last_stop_kind = "session_stop";
     active.last_stop_emulated_time_ns = adapter.EmulatedTimeNs();
     active.has_last_stop_emulated_time = true;
@@ -5620,6 +5908,12 @@ void AgentServer::OnProgramExited(const std::shared_ptr<Impl>& impl,
         std::string cleanup_error;
         (void)adapter.StopHardwareTrace(&hardware_status, &cleanup_error);
         active.hardware_trace_active = false;
+    }
+    if (active.dos_file_trace_active) {
+        DosFileTracePage dos_status;
+        std::string cleanup_error;
+        (void)adapter.StopDosFileTrace(&dos_status, &cleanup_error);
+        active.dos_file_trace_active = false;
     }
     for (std::map<std::string, Impl::Breakpoint>::const_iterator item = active.breakpoints.begin();
          item != active.breakpoints.end(); ++item) {

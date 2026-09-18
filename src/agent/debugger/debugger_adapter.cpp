@@ -1542,6 +1542,50 @@ bool DebuggerAdapter::StopHardwareTrace(HardwareTracePage* status,
     return true;
 }
 
+bool DebuggerAdapter::StartDosFileTrace(const DosFileTraceConfig& config,
+                                        std::string* error) const
+{
+    if (!RequireAvailable(error) || !RequireEmulationThread(error))
+        return false;
+    if (!AGENT_DosFileTraceStart(config)) {
+        if (error != NULL)
+            *error = "A DOS file trace is already active or its configuration is invalid";
+        return false;
+    }
+    return true;
+}
+
+bool DebuggerAdapter::ReadDosFileTrace(const bool has_cursor,
+                                       const std::uint64_t cursor,
+                                       const std::size_t limit,
+                                       DosFileTracePage* page,
+                                       bool* cursor_expired,
+                                       std::string* error) const
+{
+    if (!RequireAvailable(error) || !RequireEmulationThread(error) ||
+        page == NULL || cursor_expired == NULL)
+        return false;
+    if (!AGENT_DosFileTraceRead(has_cursor, cursor, limit, page, cursor_expired)) {
+        if (!*cursor_expired && error != NULL)
+            *error = "No DOS file trace has been started";
+        return false;
+    }
+    return true;
+}
+
+bool DebuggerAdapter::StopDosFileTrace(DosFileTracePage* status,
+                                       std::string* error) const
+{
+    if (!RequireAvailable(error) || !RequireEmulationThread(error) || status == NULL)
+        return false;
+    if (!AGENT_DosFileTraceStop(status)) {
+        if (error != NULL)
+            *error = "No DOS file trace is active";
+        return false;
+    }
+    return true;
+}
+
 bool DebuggerAdapter::TerminateTarget(std::string* error) const
 {
     if (!RequireAvailable(error) || !RequireEmulationThread(error))

@@ -23,6 +23,8 @@ from .models import (
     DosMemoryBlock,
     DosMemoryMap,
     DosProgramLoad,
+    DosFileTraceEvent,
+    DosFileTracePage,
     HardwareTraceEvent,
     HardwareTracePage,
     InterruptBreakpoint,
@@ -811,6 +813,94 @@ class AgentClient:
             dropped_event_count=_integer(result, "dropped_event_count"),
             first_available_sequence=_integer(result, "first_available_sequence"),
             events=(), next_cursor=None,
+        )
+
+    def start_dos_file_trace(
+        self, session_id: str, capacity: int, *, payload_preview_bytes: int = 64,
+        request_id: str | None = None,
+    ) -> bool:
+        if capacity <= 0:
+            raise ValueError("capacity must be positive")
+        if payload_preview_bytes < 0 or payload_preview_bytes > 4096:
+            raise ValueError("payload_preview_bytes must be in the range 0..4096")
+        result = self.call("dos.trace.start", {
+            "session_id": session_id,
+            "capacity": capacity,
+            "payload_preview_bytes": payload_preview_bytes,
+        }, request_id)
+        return result.get("active") is True
+
+    def read_dos_file_trace(
+        self, session_id: str, cursor: str | None, limit: int,
+        request_id: str | None = None,
+    ) -> DosFileTracePage:
+        if limit <= 0:
+            raise ValueError("limit must be positive")
+        result = self.call("dos.trace.read", {
+            "session_id": session_id, "cursor": cursor, "limit": limit,
+        }, request_id)
+        return self._decode_dos_file_trace_page(result, allow_events=True)
+
+    def stop_dos_file_trace(self, session_id: str,
+                            request_id: str | None = None) -> DosFileTracePage:
+        result = self.call("dos.trace.stop", {"session_id": session_id}, request_id)
+        return self._decode_dos_file_trace_page(result, allow_events=False)
+
+    @staticmethod
+    def _decode_dos_file_trace_page(
+        result: Mapping[str, Any], *, allow_events: bool,
+    ) -> DosFileTracePage:
+        raw_events = result.get("events")
+        if not isinstance(raw_events, list) or not isinstance(result.get("active"), bool):
+            raise AgentProtocolError("DOS file trace returned an invalid page")
+        if not allow_events and raw_events:
+            raise AgentProtocolError("dos.trace.stop returned unexpected events")
+        events: list[DosFileTraceEvent] = []
+        for value in raw_events:
+            event = _object_value(value, "DOS file trace event")
+            raw_preview = event.get("payload_preview_base64")
+            preview: bytes | None = None
+            if raw_preview is not None:
+                try:
+                    preview = base64.b64decode(
+                        _string(event, "payload_preview_base64"), validate=True
+                    )
+                except (binascii.Error, ValueError) as error:
+                    raise AgentProtocolError("DOS file payload preview is invalid") from error
+            before = event.get("position_before")
+            after = event.get("position_after")
+            events.append(DosFileTraceEvent(
+                sequence=_integer(event, "sequence"),
+                correlation_id=_string(event, "correlation_id"),
+                emulated_time_ns=_integer(event, "emulated_time_ns"),
+                kind=_string(event, "kind"),
+                target_psp=_string(event, "target_psp"),
+                service=_string(event, "service"),
+                caller_return_address=MemoryAddress.from_rpc(
+                    _object(event, "caller_return_address")
+                ),
+                path=_string(event, "path"), handle=_string(event, "handle"),
+                system_handle=_optional_string(event.get("system_handle"), "system_handle"),
+                position_before=None if before is None else _integer_value(before, "position_before"),
+                position_after=None if after is None else _integer_value(after, "position_after"),
+                requested_count=_integer(event, "requested_count"),
+                actual_count=_integer(event, "actual_count"),
+                requested_offset=_integer(event, "requested_offset"),
+                seek_origin=_integer(event, "seek_origin"),
+                success=_boolean(event, "success"), carry=_boolean(event, "carry"),
+                error_code=_string(event, "error_code"),
+                payload_sha256=_optional_string(event.get("payload_sha256"), "payload_sha256"),
+                payload_preview=preview,
+                payload_truncated=_boolean(event, "payload_truncated"),
+            ))
+        return DosFileTracePage(
+            active=result["active"], capacity=_integer(result, "capacity"),
+            payload_preview_bytes=_integer(result, "payload_preview_bytes"),
+            target_psp=_string(result, "target_psp"),
+            dropped_event_count=_integer(result, "dropped_event_count"),
+            first_available_sequence=_integer(result, "first_available_sequence"),
+            events=tuple(events),
+            next_cursor=_optional_string(result.get("next_cursor"), "next_cursor"),
         )
 
     def _new_request_id(self) -> str:

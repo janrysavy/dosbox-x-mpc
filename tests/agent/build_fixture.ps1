@@ -51,3 +51,20 @@ New-Item -ItemType Directory -Force -Path $fixtureDirectory, $RuntimeDirectory |
 [System.IO.File]::WriteAllBytes((Join-Path $RuntimeDirectory 'AGENTREP.COM'), $stepOverRepFixtureBytes)
 [System.IO.File]::WriteAllBytes((Join-Path $fixtureDirectory 'agent_protected_mode.com'), $protectedModeFixtureBytes)
 [System.IO.File]::WriteAllBytes((Join-Path $RuntimeDirectory 'AGPMODE.COM'), $protectedModeFixtureBytes)
+
+# Keep the file-service fixture readable and reproducible. LLVM's Windows
+# binaries assemble and link the 16-bit source directly; every intermediate
+# stays under the requested runtime directory.
+$llvmMc = Get-Command llvm-mc.exe -ErrorAction Stop
+$lld = Get-Command lld.exe -ErrorAction Stop
+$fileTraceSource = Join-Path $fixtureDirectory 'agent_dos_file_trace.asm'
+$fileTraceObject = Join-Path $RuntimeDirectory '_agent_dos_file_trace.o'
+$fileTraceBinary = Join-Path $fixtureDirectory 'AGFILE.COM'
+& $llvmMc.Source --triple=i386-pc-none-elf --filetype=obj `
+    -o $fileTraceObject $fileTraceSource
+if ($LASTEXITCODE -ne 0) { throw "llvm-mc failed to assemble $fileTraceSource" }
+& $lld.Source -flavor gnu -m elf_i386 --image-base=0 --oformat=binary `
+    -Ttext=0x100 -o $fileTraceBinary $fileTraceObject
+if ($LASTEXITCODE -ne 0) { throw "lld failed to link $fileTraceSource" }
+Copy-Item -LiteralPath $fileTraceBinary -Destination (Join-Path $RuntimeDirectory 'AGFILE.COM') -Force
+Remove-Item -LiteralPath $fileTraceObject -Force

@@ -312,6 +312,35 @@ class AgentClientTests(unittest.TestCase):
                                    "dropped_event_count": 2,
                                    "first_available_sequence": 3,
                                    "events": [], "next_cursor": None}}
+            if method == "dos.trace.start":
+                return {"result": {"session_id": "ses-1", "state_revision": 6,
+                                   "active": True, "capacity": 4,
+                                   "payload_preview_bytes": 2, "target_psp": "0x1000"}}
+            if method == "dos.trace.read":
+                return {"result": {"session_id": "ses-1", "state_revision": 6,
+                                   "active": True, "capacity": 4,
+                                   "payload_preview_bytes": 2, "target_psp": "0x1000",
+                                   "dropped_event_count": 0, "first_available_sequence": 1,
+                                   "events": [{
+                                       "sequence": 1, "correlation_id": "dos-file-1",
+                                       "emulated_time_ns": 123458, "kind": "read",
+                                       "target_psp": "0x1000", "service": "0x003F",
+                                       "caller_return_address": address, "path": "C:\\DATA.DAT",
+                                       "handle": "0x0005", "system_handle": "0x0007",
+                                       "position_before": 0, "position_after": 3,
+                                       "requested_count": 4, "actual_count": 3,
+                                       "requested_offset": 0, "seek_origin": 0,
+                                       "success": True, "carry": False, "error_code": "0x0000",
+                                       "payload_sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+                                       "payload_preview_base64": base64.b64encode(b"ab").decode("ascii"),
+                                       "payload_truncated": True,
+                                   }], "next_cursor": None}}
+            if method == "dos.trace.stop":
+                return {"result": {"session_id": "ses-1", "state_revision": 6,
+                                   "active": False, "capacity": 4,
+                                   "payload_preview_bytes": 2, "target_psp": "0x1000",
+                                   "dropped_event_count": 0, "first_available_sequence": 2,
+                                   "events": [], "next_cursor": None}}
             self.fail(f"unexpected method {method}")
 
         transport = FakeTransport(handler)
@@ -393,9 +422,23 @@ class AgentClientTests(unittest.TestCase):
                           hardware.events[0].value))
         self.assertEqual((1, "0x0009"), (hardware.events[1].irq, hardware.events[1].vector))
         self.assertFalse(client.stop_hardware_trace(session.id).active)
+        self.assertTrue(client.start_dos_file_trace(
+            session.id, 4, payload_preview_bytes=2
+        ))
+        dos_files = client.read_dos_file_trace(session.id, None, 4)
+        self.assertEqual(("read", "dos-file-1", b"ab"),
+                         (dos_files.events[0].kind,
+                          dos_files.events[0].correlation_id,
+                          dos_files.events[0].payload_preview))
+        self.assertEqual((4, 3, 0, 3),
+                         (dos_files.events[0].requested_count,
+                          dos_files.events[0].actual_count,
+                          dos_files.events[0].position_before,
+                          dos_files.events[0].position_after))
+        self.assertFalse(client.stop_dos_file_trace(session.id).active)
         self.assertEqual("op-1", client.pause(session.id).id)
         self.assertEqual("op-1", client.stop(session.id).id)
-        self.assertEqual(36, len(transport.requests))
+        self.assertEqual(39, len(transport.requests))
         self.assertEqual(str(make_config().dosbox_workdir), transport.requests[1]["params"]["mounts"][0]["host_path"])
 
     def test_run_until_predicates_refuse_ambiguous_shapes(self) -> None:
