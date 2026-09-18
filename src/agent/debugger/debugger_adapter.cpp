@@ -608,6 +608,8 @@ bool DebuggerAdapter::CreateBreakpoint(const BreakpointKind kind,
                                        const MemoryAddress& address,
                                        const std::uint32_t length,
                                        const bool once,
+                                       const BreakpointCondition& condition,
+                                       const BreakpointHitFilter& hit_filter,
                                        NativeBreakpoint* breakpoint,
                                        MemoryAccessError* access_error,
                                        std::string* error) const
@@ -700,17 +702,35 @@ bool DebuggerAdapter::CreateBreakpoint(const BreakpointKind kind,
 #endif
     }
 
+    DEBUG_AgentBreakpointPolicy policy;
+    policy.register_name = condition.register_name.c_str();
+    policy.condition_enabled = condition.enabled;
+    policy.condition_equal = condition.equal;
+    policy.condition_value = condition.value;
+    policy.skip = hit_filter.skip;
+    policy.every = hit_filter.every;
+    if (!DEBUG_AgentConfigureBreakpoint(handle, &policy)) {
+        (void)DEBUG_AgentDeleteBreakpoint(handle);
+        if (error != NULL)
+            *error = "Debugger rejected the breakpoint condition or hit filter";
+        return false;
+    }
+
     breakpoint->handle = handle;
     breakpoint->kind = kind;
     breakpoint->address = address;
     breakpoint->length = length;
     breakpoint->once = once;
+    breakpoint->condition = condition;
+    breakpoint->hit_filter = hit_filter;
     return true;
 #else
     (void)kind;
     (void)address;
     (void)length;
     (void)once;
+    (void)condition;
+    (void)hit_filter;
     (void)breakpoint;
     (void)access_error;
     return false;
@@ -734,12 +754,20 @@ bool DebuggerAdapter::DeleteBreakpoint(const NativeBreakpoint& breakpoint, std::
 #endif
 }
 
-std::uintptr_t DebuggerAdapter::ConsumeLastBreakpointHandle() const
+bool DebuggerAdapter::ConsumeLastBreakpointHit(BreakpointHit* hit) const
 {
 #if C_DEBUG
-    return DEBUG_AgentConsumeLastBreakpoint();
+    if (hit == NULL)
+        return false;
+    DEBUG_AgentBreakpointHit native;
+    if (!DEBUG_AgentConsumeBreakpointHit(&native))
+        return false;
+    hit->handle = native.handle;
+    hit->hit_count = native.hit_count;
+    return true;
 #else
-    return 0;
+    (void)hit;
+    return false;
 #endif
 }
 

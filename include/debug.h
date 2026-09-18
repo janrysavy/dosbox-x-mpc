@@ -62,6 +62,21 @@ bool DEBUG_AgentCreateAccessWatchpoint(uint32_t linear_address,
                                        bool on_write,
                                        bool once,
                                        uintptr_t* handle);
+struct DEBUG_AgentBreakpointPolicy {
+    const char* register_name = nullptr;
+    bool condition_enabled = false;
+    bool condition_equal = true;
+    uint32_t condition_value = 0;
+    uint32_t skip = 0;
+    uint32_t every = 1;
+};
+struct DEBUG_AgentBreakpointHit {
+    uintptr_t handle = 0;
+    uint64_t hit_count = 0;
+};
+bool DEBUG_AgentConfigureBreakpoint(uintptr_t handle,
+                                    const DEBUG_AgentBreakpointPolicy* policy);
+bool DEBUG_AgentConsumeBreakpointHit(DEBUG_AgentBreakpointHit* hit);
 bool DEBUG_AgentConsumeWatchpointHit(DEBUG_AgentWatchpointHit* hit);
 bool DEBUG_AgentDeleteBreakpoint(uintptr_t handle);
 uintptr_t DEBUG_AgentConsumeLastBreakpoint(void);

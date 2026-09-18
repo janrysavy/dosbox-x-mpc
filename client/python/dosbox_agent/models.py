@@ -139,6 +139,7 @@ class StopReason:
     tsr: bool | None = None
     access: WatchpointAccess | None = None
     registers: RegisterSnapshot | None = None
+    hit_count: int | None = None
 
     @classmethod
     def from_rpc(cls, value: Mapping[str, Any]) -> "StopReason":
@@ -148,6 +149,7 @@ class StopReason:
         tsr = value.get("tsr")
         access = value.get("access")
         registers = value.get("registers")
+        hit_count = value.get("hit_count")
         return cls(
             kind=_string(value.get("kind"), "stop_reason.kind"),
             address=MemoryAddress.from_rpc(_mapping(address, "stop_reason.address")) if address is not None else None,
@@ -161,6 +163,8 @@ class StopReason:
             registers=RegisterSnapshot.from_rpc(
                 _mapping(registers, "stop_reason.registers")
             ) if registers is not None else None,
+            hit_count=_integer(hit_count, "stop_reason.hit_count")
+            if hit_count is not None else None,
         )
 
 
@@ -271,6 +275,55 @@ class VideoSnapshot:
 
 
 @dataclass(frozen=True)
+class BreakpointCondition:
+    register: str
+    operator: str
+    value: int
+
+    def to_rpc(self) -> dict[str, Any]:
+        if self.operator not in ("eq", "ne"):
+            raise ValueError("breakpoint condition operator must be eq or ne")
+        if not isinstance(self.value, int) or isinstance(self.value, bool) or not 0 <= self.value <= 0xffffffff:
+            raise ValueError("breakpoint condition value must be a 32-bit unsigned integer")
+        return {"register": self.register, "operator": self.operator,
+                "value": f"0x{self.value:08X}"}
+
+    @classmethod
+    def from_rpc(cls, value: Mapping[str, Any]) -> "BreakpointCondition":
+        encoded_value = _string(value.get("value"), "breakpoint.condition.value")
+        if len(encoded_value) != 10 or not encoded_value.startswith("0x"):
+            raise ValueError("breakpoint.condition.value must be 0xNNNNNNNN")
+        try:
+            parsed_value = int(encoded_value[2:], 16)
+        except ValueError as error:
+            raise ValueError("breakpoint.condition.value must be hexadecimal") from error
+        return cls(
+            register=_string(value.get("register"), "breakpoint.condition.register"),
+            operator=_string(value.get("operator"), "breakpoint.condition.operator"),
+            value=parsed_value,
+        )
+
+
+@dataclass(frozen=True)
+class BreakpointHitFilter:
+    skip: int = 0
+    every: int = 1
+
+    def to_rpc(self) -> dict[str, int]:
+        if (not isinstance(self.skip, int) or isinstance(self.skip, bool) or self.skip < 0 or
+                not isinstance(self.every, int) or isinstance(self.every, bool) or self.every <= 0):
+            raise ValueError("hit filter requires non-negative skip and positive every")
+        return {"skip": self.skip, "every": self.every}
+
+    @classmethod
+    def from_rpc(cls, value: Mapping[str, Any]) -> "BreakpointHitFilter":
+        return cls(
+            skip=_integer(value.get("skip"), "breakpoint.hit_filter.skip"),
+            every=_integer(value.get("every"), "breakpoint.hit_filter.every"),
+        )
+
+
+@dataclass(frozen=True)
 class Breakpoint:
     id: str
     kind: str
@@ -278,6 +331,8 @@ class Breakpoint:
     once: bool
     length: int = 1
     enabled: bool = True
+    condition: BreakpointCondition | None = None
+    hit_filter: BreakpointHitFilter = BreakpointHitFilter()
 
 
 @dataclass(frozen=True)

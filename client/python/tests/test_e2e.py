@@ -11,7 +11,12 @@ CLIENT_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(CLIENT_ROOT))
 
-from dosbox_agent import AgentClient, MemoryAddress
+from dosbox_agent import (
+    AgentClient,
+    BreakpointCondition,
+    BreakpointHitFilter,
+    MemoryAddress,
+)
 
 
 def main() -> int:
@@ -122,7 +127,8 @@ def main() -> int:
             raise AssertionError(f"memory-write watchpoint metadata mismatch: {write_watch}")
         operation = client.continue_(session.id)
         write_stop = client.wait(session.id, operation.id, 10000).session.stop_reason
-        if write_stop is None or write_stop.breakpoint_id != write_watch.id or write_stop.access is None:
+        if (write_stop is None or write_stop.breakpoint_id != write_watch.id or
+                write_stop.access is None or write_stop.hit_count != 1):
             raise AssertionError(f"memory-write watchpoint did not report typed access evidence: {write_stop}")
         expected_linear = (int(entry_registers.segments["ds"], 16) << 4) + 0x0201
         if (write_stop.access.kind != "write" or
@@ -146,7 +152,8 @@ def main() -> int:
         )
         operation = client.continue_(session.id)
         read_stop = client.wait(session.id, operation.id, 10000).session.stop_reason
-        if read_stop is None or read_stop.breakpoint_id != read_watch.id or read_stop.access is None:
+        if (read_stop is None or read_stop.breakpoint_id != read_watch.id or
+                read_stop.access is None or read_stop.hit_count != 1):
             raise AssertionError(f"memory-read watchpoint did not report typed access evidence: {read_stop}")
         if (read_stop.access.kind != "read" or
                 read_stop.access.before != b"A" or
@@ -168,6 +175,40 @@ def main() -> int:
             f"old={write_stop.access.before.hex()} new={write_stop.access.after.hex()} post_ip=0x00000111; "
             f"read {read_stop.access.instruction_address.segment}:0x00000111 "
             f"value={read_stop.access.after.hex()} post_ip=0x00000113."
+        )
+        stop = client.stop(session.id)
+        client.wait(session.id, stop.id, 10000)
+
+        session = client.start("AGCOND.COM")
+        session_id = session.id
+        condition_breakpoint = client.create_execution_breakpoint(
+            session.id,
+            session.stop_reason.address.segment,
+            "0x00000106",
+            condition=BreakpointCondition("ax", "ne", 1),
+            hit_filter=BreakpointHitFilter(skip=1, every=2),
+        )
+        filtered_values = []
+        filtered_counts = []
+        for expected_ax, expected_count in ((3, 2), (5, 4)):
+            operation = client.continue_(session.id)
+            reason = client.wait(session.id, operation.id, 10000).session.stop_reason
+            if (reason is None or reason.breakpoint_id != condition_breakpoint.id):
+                raise AssertionError(f"conditional breakpoint did not stop: {reason}")
+            registers = client.get_registers(session.id)
+            actual_ax = int(registers.general["eax"], 16) & 0xffff
+            if actual_ax != expected_ax or reason.hit_count != expected_count:
+                raise AssertionError(
+                    f"conditional hit mismatch: AX={actual_ax}, hit_count={reason.hit_count}"
+                )
+            filtered_values.append(actual_ax)
+            filtered_counts.append(reason.hit_count)
+        listed = client.list_breakpoints(session.id)
+        if listed != (condition_breakpoint,):
+            raise AssertionError(f"conditional breakpoint metadata changed: {listed}")
+        print(
+            "BREAKPOINT-FILTER evidence: condition AX != 1, skip=1, every=2; "
+            f"stops AX={filtered_values} at condition-hit counts {filtered_counts}."
         )
         stop = client.stop(session.id)
         client.wait(session.id, stop.id, 10000)
@@ -217,7 +258,7 @@ def main() -> int:
             race_kinds.add(race_result.stop_reason.kind)
 
         print(
-            "RPC-E02 passed: client operations, exact read/write watchpoints, controller stop, "
+            "RPC-E02 passed: client operations, exact read/write watchpoints, conditional hit filters, controller stop, "
             "natural DOS exit, child-PSP filtering, "
             f"and 8 continue/stop races ({sorted(race_kinds)}) passed."
         )

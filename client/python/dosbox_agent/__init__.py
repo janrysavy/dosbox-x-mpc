@@ -23,6 +23,8 @@ from .errors import (
 from .models import (
     AgentConfig,
     Breakpoint,
+    BreakpointCondition,
+    BreakpointHitFilter,
     DiagnosticCommandResult,
     MemoryAddress,
     MemoryRead,
@@ -44,7 +46,7 @@ from .models import (
 
 __all__ = [
     "AddressNotMappedError", "AgentClient", "AgentConfig", "AgentConnectionError", "AgentError",
-    "AgentProtocolError", "AgentRpcError", "Breakpoint", "BreakpointNotFoundError",
+    "AgentProtocolError", "AgentRpcError", "Breakpoint", "BreakpointCondition", "BreakpointHitFilter", "BreakpointNotFoundError",
     "CapabilityUnavailableError", "CommandRejectedError", "CursorExpiredError", "DiagnosticCommandResult",
     "InvalidBinaryLengthError", "MemoryAddress", "MemoryPreconditionFailedError", "MemoryRead", "MemoryWrite",
     "Operation", "OperationTimeoutError", "OutputPage", "OutputRecord", "RegisterSnapshot",

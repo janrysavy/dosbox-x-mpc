@@ -16,6 +16,8 @@ from .errors import AgentConnectionError, AgentProtocolError, map_rpc_error
 from .models import (
     AgentConfig,
     Breakpoint,
+    BreakpointCondition,
+    BreakpointHitFilter,
     DiagnosticCommandResult,
     MemoryAddress,
     MemoryRead,
@@ -398,31 +400,45 @@ class AgentClient:
         )
 
     def create_execution_breakpoint(self, session_id: str, segment: str | int, offset: str | int, *, once: bool = False,
+                                    condition: BreakpointCondition | None = None,
+                                    hit_filter: BreakpointHitFilter = BreakpointHitFilter(),
                                     request_id: str | None = None) -> Breakpoint:
         return self.create_breakpoint(session_id, "execution", MemoryAddress.segmented(segment, offset), length=1, once=once,
+                                      condition=condition, hit_filter=hit_filter,
                                       request_id=request_id)
 
     def create_watchpoint(self, session_id: str, kind: str, address: MemoryAddress, length: int = 1,
-                          *, once: bool = False, request_id: str | None = None) -> Breakpoint:
+                          *, once: bool = False, condition: BreakpointCondition | None = None,
+                          hit_filter: BreakpointHitFilter = BreakpointHitFilter(),
+                          request_id: str | None = None) -> Breakpoint:
         if kind not in ("memory_read", "memory_write", "memory_access"):
             raise ValueError("watchpoint kind must be memory_read, memory_write, or memory_access")
         return self.create_breakpoint(session_id, kind, address, length=length, once=once,
+                                      condition=condition, hit_filter=hit_filter,
                                       request_id=request_id)
 
     def create_breakpoint(self, session_id: str, kind: str, address: MemoryAddress, *, length: int = 1,
-                          once: bool = False,
+                          once: bool = False, condition: BreakpointCondition | None = None,
+                          hit_filter: BreakpointHitFilter = BreakpointHitFilter(),
                           request_id: str | None = None) -> Breakpoint:
         if kind not in ("execution", "memory_change", "memory_read", "memory_write", "memory_access"):
             raise ValueError("unsupported breakpoint kind")
         if not isinstance(length, int) or isinstance(length, bool) or length <= 0:
             raise ValueError("length must be a positive integer")
-        result = self.call("breakpoints.create", {
+        if condition is not None and kind != "execution":
+            raise ValueError("register conditions are supported only on execution breakpoints")
+        params: dict[str, Any] = {
             "session_id": session_id,
             "kind": kind,
             "address": address.to_rpc(),
             "length": length,
             "once": once,
-        }, request_id)
+            "hit_filter": hit_filter.to_rpc(),
+        }
+        if condition is not None:
+            params["condition"] = condition.to_rpc()
+        result = self.call("breakpoints.create", params, request_id)
+        encoded_condition = result.get("condition")
         return Breakpoint(
             id=_string(result, "breakpoint_id"),
             kind=_string(result, "kind"),
@@ -430,6 +446,9 @@ class AgentClient:
             once=bool(result.get("once")),
             length=_integer(result, "length"),
             enabled=True,
+            condition=BreakpointCondition.from_rpc(_object_value(encoded_condition, "condition"))
+            if encoded_condition is not None else None,
+            hit_filter=BreakpointHitFilter.from_rpc(_object(result, "hit_filter")),
         )
 
     def list_breakpoints(self, session_id: str, request_id: str | None = None) -> tuple[Breakpoint, ...]:
@@ -440,6 +459,7 @@ class AgentClient:
         parsed: list[Breakpoint] = []
         for value in values:
             entry = _object_value(value, "breakpoint")
+            encoded_condition = entry.get("condition")
             parsed.append(Breakpoint(
                 id=_string(entry, "breakpoint_id"),
                 kind=_string(entry, "kind"),
@@ -447,6 +467,10 @@ class AgentClient:
                 once=bool(entry.get("once")),
                 length=_integer(entry, "length"),
                 enabled=bool(entry.get("enabled")),
+                condition=BreakpointCondition.from_rpc(
+                    _object_value(encoded_condition, "condition")
+                ) if encoded_condition is not None else None,
+                hit_filter=BreakpointHitFilter.from_rpc(_object(entry, "hit_filter")),
             ))
         return tuple(parsed)
 

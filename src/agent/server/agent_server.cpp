@@ -566,6 +566,8 @@ public:
         std::string last_stop_breakpoint_id;
         MemoryAddress last_stop_breakpoint_address;
         bool has_last_stop_breakpoint_address = false;
+        std::uint64_t last_stop_breakpoint_hit_count = 0;
+        bool has_last_stop_breakpoint_hit_count = false;
         WatchpointHit last_watchpoint_hit;
         bool has_last_watchpoint_hit = false;
         RegisterSnapshot last_watchpoint_registers;
@@ -646,11 +648,13 @@ public:
                                   const MemoryAddress& address,
                                   std::uint32_t length,
                                   bool once,
+                                  const BreakpointCondition& condition,
+                                  const BreakpointHitFilter& hit_filter,
                                   NativeBreakpoint* breakpoint,
                                   MemoryAccessError* access_error,
                                   std::string* error) const = 0;
     virtual bool DeleteBreakpoint(const NativeBreakpoint& breakpoint, std::string* error) const = 0;
-    virtual std::uintptr_t ConsumeLastBreakpointHandle() const = 0;
+    virtual bool ConsumeLastBreakpointHit(BreakpointHit* hit) const = 0;
     virtual bool ConsumeLastWatchpointHit(WatchpointHit* hit) const = 0;
     virtual bool ExecuteDiagnosticCommand(const std::string& command,
                                           std::string* raw_output,
@@ -692,9 +696,9 @@ public:
     AGENT_RUNTIME_FORWARD(Step, bool Step(StepMode mode, bool* continued, std::string* error) const, (mode, continued, error))
     AGENT_RUNTIME_FORWARD(ReadMemory, bool ReadMemory(const MemoryAddress& address, std::size_t length, std::vector<std::uint8_t>* data, MemoryAccessError* access_error, std::string* error) const, (address, length, data, access_error, error))
     AGENT_RUNTIME_FORWARD(WriteMemory, bool WriteMemory(const MemoryAddress& address, const std::vector<std::uint8_t>& data, std::vector<std::uint8_t>* after, MemoryAccessError* access_error, std::string* error) const, (address, data, after, access_error, error))
-    AGENT_RUNTIME_FORWARD(CreateBreakpoint, bool CreateBreakpoint(BreakpointKind kind, const MemoryAddress& address, std::uint32_t length, bool once, NativeBreakpoint* breakpoint, MemoryAccessError* access_error, std::string* error) const, (kind, address, length, once, breakpoint, access_error, error))
+    AGENT_RUNTIME_FORWARD(CreateBreakpoint, bool CreateBreakpoint(BreakpointKind kind, const MemoryAddress& address, std::uint32_t length, bool once, const BreakpointCondition& condition, const BreakpointHitFilter& hit_filter, NativeBreakpoint* breakpoint, MemoryAccessError* access_error, std::string* error) const, (kind, address, length, once, condition, hit_filter, breakpoint, access_error, error))
     AGENT_RUNTIME_FORWARD(DeleteBreakpoint, bool DeleteBreakpoint(const NativeBreakpoint& breakpoint, std::string* error) const, (breakpoint, error))
-    AGENT_RUNTIME_FORWARD(ConsumeLastBreakpointHandle, std::uintptr_t ConsumeLastBreakpointHandle() const, ())
+    AGENT_RUNTIME_FORWARD(ConsumeLastBreakpointHit, bool ConsumeLastBreakpointHit(BreakpointHit* hit) const, (hit))
     AGENT_RUNTIME_FORWARD(ConsumeLastWatchpointHit, bool ConsumeLastWatchpointHit(WatchpointHit* hit) const, (hit))
     AGENT_RUNTIME_FORWARD(ExecuteDiagnosticCommand, bool ExecuteDiagnosticCommand(const std::string& command, std::string* raw_output, std::string* error) const, (command, raw_output, error))
     AGENT_RUNTIME_FORWARD(StartTrace, bool StartTrace(const std::string& detail, std::uint32_t instruction_count, std::string* error) const, (detail, instruction_count, error))
@@ -777,9 +781,9 @@ public:
     AGENT_RUNTIME_UNAVAILABLE(Step, bool Step(StepMode, bool*, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(ReadMemory, bool ReadMemory(const MemoryAddress&, std::size_t, std::vector<std::uint8_t>*, MemoryAccessError*, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(WriteMemory, bool WriteMemory(const MemoryAddress&, const std::vector<std::uint8_t>&, std::vector<std::uint8_t>*, MemoryAccessError*, std::string* error) const)
-    AGENT_RUNTIME_UNAVAILABLE(CreateBreakpoint, bool CreateBreakpoint(BreakpointKind, const MemoryAddress&, std::uint32_t, bool, NativeBreakpoint*, MemoryAccessError*, std::string* error) const)
+    AGENT_RUNTIME_UNAVAILABLE(CreateBreakpoint, bool CreateBreakpoint(BreakpointKind, const MemoryAddress&, std::uint32_t, bool, const BreakpointCondition&, const BreakpointHitFilter&, NativeBreakpoint*, MemoryAccessError*, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(DeleteBreakpoint, bool DeleteBreakpoint(const NativeBreakpoint&, std::string* error) const)
-    std::uintptr_t ConsumeLastBreakpointHandle() const override { return 0; }
+    bool ConsumeLastBreakpointHit(BreakpointHit*) const override { return false; }
     bool ConsumeLastWatchpointHit(WatchpointHit*) const override { return false; }
     AGENT_RUNTIME_UNAVAILABLE(ExecuteDiagnosticCommand, bool ExecuteDiagnosticCommand(const std::string&, std::string*, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(StartTrace, bool StartTrace(const std::string&, std::uint32_t, std::string* error) const)
@@ -943,6 +947,100 @@ static const char* BreakpointKindName(const BreakpointKind kind)
     return "unknown";
 }
 
+static std::string Hex32(std::uint32_t value);
+
+static bool BreakpointRegisterMask(const std::string& name, std::uint32_t* mask)
+{
+    if (name == "eax" || name == "ebx" || name == "ecx" || name == "edx" ||
+        name == "esi" || name == "edi" || name == "ebp" || name == "esp" ||
+        name == "eip" || name == "eflags") {
+        *mask = 0xffffffffu;
+        return true;
+    }
+    if (name == "ax" || name == "bx" || name == "cx" || name == "dx" ||
+        name == "si" || name == "di" || name == "bp" || name == "sp" ||
+        name == "ip" || name == "cs" || name == "ds" || name == "es" ||
+        name == "fs" || name == "gs" || name == "ss") {
+        *mask = 0xffffu;
+        return true;
+    }
+    if (name == "al" || name == "bl" || name == "cl" || name == "dl" ||
+        name == "ah" || name == "bh" || name == "ch" || name == "dh") {
+        *mask = 0xffu;
+        return true;
+    }
+    return false;
+}
+
+static bool ParseBreakpointPolicy(const JsonValue& params,
+                                  BreakpointCondition* condition,
+                                  BreakpointHitFilter* hit_filter,
+                                  std::string* error)
+{
+    *condition = BreakpointCondition();
+    *hit_filter = BreakpointHitFilter();
+    const JsonValue* encoded_condition = params.Find("condition");
+    if (encoded_condition != NULL) {
+        if (encoded_condition->type != JsonType::Object) {
+            *error = "condition must be an object";
+            return false;
+        }
+        std::string register_name;
+        std::string operation;
+        const JsonValue* value = encoded_condition->Find("value");
+        std::uint32_t parsed_value = 0;
+        std::uint32_t register_mask = 0;
+        if (!GetString(*encoded_condition, "register", &register_name) ||
+            !GetString(*encoded_condition, "operator", &operation) ||
+            value == NULL || !ParseFixedWidthHex(*value, 8, &parsed_value) ||
+            !BreakpointRegisterMask(register_name, &register_mask) ||
+            (operation != "eq" && operation != "ne") ||
+            (parsed_value & ~register_mask) != 0) {
+            *error = "condition requires a supported lowercase register, operator eq/ne, and an in-range 0xNNNNNNNN value";
+            return false;
+        }
+        condition->enabled = true;
+        condition->register_name = register_name;
+        condition->equal = operation == "eq";
+        condition->value = parsed_value;
+    }
+    const JsonValue* encoded_filter = params.Find("hit_filter");
+    if (encoded_filter != NULL) {
+        if (encoded_filter->type != JsonType::Object) {
+            *error = "hit_filter must be an object";
+            return false;
+        }
+        const JsonValue* skip = encoded_filter->Find("skip");
+        const JsonValue* every = encoded_filter->Find("every");
+        if ((skip != NULL && !GetUnsignedInteger(*skip, &hit_filter->skip)) ||
+            (every != NULL && (!GetUnsignedInteger(*every, &hit_filter->every) ||
+                               hit_filter->every == 0))) {
+            *error = "hit_filter.skip must be non-negative and hit_filter.every must be positive";
+            return false;
+        }
+    }
+    return true;
+}
+
+static JsonValue EncodeBreakpointCondition(const BreakpointCondition& condition)
+{
+    if (!condition.enabled)
+        return JsonValue::Null();
+    JsonValue encoded = Object();
+    Add(&encoded, "register", String(condition.register_name));
+    Add(&encoded, "operator", String(condition.equal ? "eq" : "ne"));
+    Add(&encoded, "value", String(Hex32(condition.value)));
+    return encoded;
+}
+
+static JsonValue EncodeBreakpointHitFilter(const BreakpointHitFilter& filter)
+{
+    JsonValue encoded = Object();
+    Add(&encoded, "skip", Number(filter.skip));
+    Add(&encoded, "every", Number(filter.every));
+    return encoded;
+}
+
 static JsonValue SessionResult(const AgentServer::Impl::Session& session)
 {
     JsonValue result = Object();
@@ -1045,6 +1143,8 @@ static JsonValue StopReason(const AgentServer::Impl::Session& session)
     Add(&stop, "kind", String(session.last_stop_kind));
     if (!session.last_stop_breakpoint_id.empty())
         Add(&stop, "breakpoint_id", String(session.last_stop_breakpoint_id));
+    if (session.has_last_stop_breakpoint_hit_count)
+        Add(&stop, "hit_count", Number(session.last_stop_breakpoint_hit_count));
     if (session.last_stop_kind == "program_exit") {
         Add(&stop, "psp", Number(session.exit_psp));
         Add(&stop, "exit_code", Number(session.exit_code));
@@ -1435,6 +1535,24 @@ static std::string Capabilities(const AgentConfig& config)
 #endif
     Add(&breakpoints, "exact_access_address_spaces", exact_access_spaces);
     Add(&breakpoints, "exact_access_requires_normal_core", JsonValue::Bool(true));
+    JsonValue condition_registers = JsonValue::Array();
+    const char* register_names[] = {
+        "eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "esp", "eip", "eflags",
+        "ax", "bx", "cx", "dx", "si", "di", "bp", "sp", "ip",
+        "al", "bl", "cl", "dl", "ah", "bh", "ch", "dh",
+        "cs", "ds", "es", "fs", "gs", "ss"
+    };
+    for (std::size_t index = 0; index < sizeof(register_names) / sizeof(register_names[0]); ++index)
+        condition_registers.array.push_back(String(register_names[index]));
+    Add(&breakpoints, "condition_registers", condition_registers);
+    JsonValue condition_operators = JsonValue::Array();
+    condition_operators.array.push_back(String("eq"));
+    condition_operators.array.push_back(String("ne"));
+    Add(&breakpoints, "condition_operators", condition_operators);
+    JsonValue conditional_kinds = JsonValue::Array();
+    conditional_kinds.array.push_back(String("execution"));
+    Add(&breakpoints, "conditional_kinds", conditional_kinds);
+    Add(&breakpoints, "hit_filter", JsonValue::Bool(true));
     Add(&result, "breakpoints", breakpoints);
     JsonValue spaces = JsonValue::Array();
     spaces.array.push_back(String("segmented"));
@@ -2214,6 +2332,7 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
             session->last_stop_kind = "session_stop";
             session->last_stop_breakpoint_id.clear();
             session->has_last_stop_breakpoint_address = false;
+            session->has_last_stop_breakpoint_hit_count = false;
             session->has_last_watchpoint_hit = false;
             session->has_last_watchpoint_registers = false;
             ++session->state_revision;
@@ -2309,6 +2428,8 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                 Add(&entry, "once", JsonValue::Bool(item->second.native.once));
                 Add(&entry, "address", EncodeMemoryAddress(item->second.native.address));
                 Add(&entry, "length", Number(item->second.native.length));
+                Add(&entry, "condition", EncodeBreakpointCondition(item->second.native.condition));
+                Add(&entry, "hit_filter", EncodeBreakpointHitFilter(item->second.native.hit_filter));
                 entries.array.push_back(entry);
             }
             Add(&result, "breakpoints", entries);
@@ -2320,6 +2441,8 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
         MemoryAddress address;
         bool once = false;
         std::uint32_t length = 1;
+        BreakpointCondition condition;
+        BreakpointHitFilter hit_filter;
         const JsonValue* once_value = parsed.params.Find("once");
         const JsonValue* length_value = parsed.params.Find("length");
         if (!GetString(parsed.params, "kind", &kind_name) ||
@@ -2327,6 +2450,7 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
              kind_name != "memory_read" && kind_name != "memory_write" &&
              kind_name != "memory_access") ||
             !ParseMemoryAddress(parsed.params, "breakpoints.create", &address, &validation_error) ||
+            !ParseBreakpointPolicy(parsed.params, &condition, &hit_filter, &validation_error) ||
             (once_value != NULL && !GetBool(parsed.params, "once", &once)) ||
             (length_value != NULL && (!GetUnsignedInteger(*length_value, &length) || length == 0))) {
             response = InvalidParams(parsed.id, validation_error.empty() ?
@@ -2337,6 +2461,9 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
         } else if ((kind_name == "execution" || kind_name == "memory_change") && length != 1) {
             response = InvalidParams(parsed.id,
                                      "execution and memory_change breakpoints require length 1");
+        } else if (condition.enabled && kind_name != "execution") {
+            response = InvalidParams(parsed.id,
+                                     "register conditions are supported only on execution breakpoints");
         } else if (session->state == Impl::SessionState::Running) {
             response = SessionError(parsed.id, kErrorTargetRunning,
                                     "Target must be stopped before creating breakpoints", "TARGET_RUNNING", session);
@@ -2357,12 +2484,15 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
 #endif
             {
                 const std::shared_ptr<Impl::AdapterOperation> operation(new Impl::AdapterOperation());
-                if (SubmitEmulationCommandLocked(impl, [impl, operation, kind, address, length, once](const std::uint64_t) {
+                if (SubmitEmulationCommandLocked(impl, [impl, operation, kind, address, length, once, condition, hit_filter](const std::uint64_t) {
                         AgentRuntime& adapter = *impl->runtime;
                         std::string adapter_error;
                         MemoryAccessError access_error;
                         NativeBreakpoint breakpoint;
-                        const bool success = adapter.CreateBreakpoint(kind, address, length, once, &breakpoint, &access_error, &adapter_error);
+                        const bool success = adapter.CreateBreakpoint(kind, address, length, once,
+                                                                      condition, hit_filter,
+                                                                      &breakpoint, &access_error,
+                                                                      &adapter_error);
                         {
                             std::lock_guard<std::mutex> operation_lock(operation->mutex);
                             operation->success = success;
@@ -2386,7 +2516,7 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                         return operation->completed.wait_for(operation_lock, std::chrono::milliseconds(timeout_ms),
                                                              [operation]() { return operation->done; });
                     };
-                    pending.finish = [impl, session_id, response_id, operation, address, kind, kind_name, length, once]() {
+                    pending.finish = [impl, session_id, response_id, operation, address, kind, kind_name, length, once, condition, hit_filter]() {
                         if (!operation->success) {
                             if (!operation->access_error.reason.empty())
                                 return AddressError(response_id, "Unable to resolve breakpoint address", address, operation->access_error);
@@ -2412,6 +2542,8 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                         Add(&result, "once", JsonValue::Bool(once));
                         Add(&result, "address", EncodeMemoryAddress(breakpoint.native.address));
                         Add(&result, "length", Number(length));
+                        Add(&result, "condition", EncodeBreakpointCondition(condition));
+                        Add(&result, "hit_filter", EncodeBreakpointHitFilter(hit_filter));
                         return AGENT_MakeJsonRpcResult(response_id, result);
                     };
                     if (parsed.has_id && parsed.id.type != JsonType::Null)
@@ -2651,6 +2783,7 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                         active.last_stop_kind = "step";
                         active.last_stop_breakpoint_id.clear();
                         active.has_last_stop_breakpoint_address = false;
+                        active.has_last_stop_breakpoint_hit_count = false;
                         active.has_last_watchpoint_hit = false;
                         active.has_last_watchpoint_registers = false;
                         active.last_stop_segment = dispatch_registers.cs;
@@ -3363,6 +3496,7 @@ void AgentServer::CompleteTargetTerminationOnEmulationThread(const std::shared_p
     active.last_stop_kind = "session_stop";
     active.last_stop_breakpoint_id.clear();
     active.has_last_stop_breakpoint_address = false;
+    active.has_last_stop_breakpoint_hit_count = false;
     active.has_last_watchpoint_hit = false;
     active.has_last_watchpoint_registers = false;
     ++active.state_revision;
@@ -3385,7 +3519,9 @@ void AgentServer::OnDebuggerStopped(const std::shared_ptr<Impl>& impl,
     if (!lease.IsActive())
         return;
     AgentRuntime& adapter = *impl->runtime;
-    const std::uintptr_t native_breakpoint = adapter.ConsumeLastBreakpointHandle();
+    BreakpointHit breakpoint_hit;
+    const bool has_breakpoint_hit = adapter.ConsumeLastBreakpointHit(&breakpoint_hit);
+    const std::uintptr_t native_breakpoint = has_breakpoint_hit ? breakpoint_hit.handle : 0;
     WatchpointHit watchpoint_hit;
     const bool has_watchpoint_hit = adapter.ConsumeLastWatchpointHit(&watchpoint_hit);
     RegisterSnapshot watchpoint_registers;
@@ -3433,6 +3569,7 @@ void AgentServer::OnDebuggerStopped(const std::shared_ptr<Impl>& impl,
     impl->session->last_stop_instruction_pointer = instruction_pointer;
     impl->session->last_stop_breakpoint_id.clear();
     impl->session->has_last_stop_breakpoint_address = false;
+    impl->session->has_last_stop_breakpoint_hit_count = false;
     impl->session->has_last_watchpoint_hit = false;
     impl->session->has_last_watchpoint_registers = false;
     if (!startup && impl->session->last_stop_kind == "breakpoint" && native_breakpoint != 0) {
@@ -3443,6 +3580,8 @@ void AgentServer::OnDebuggerStopped(const std::shared_ptr<Impl>& impl,
             impl->session->last_stop_breakpoint_id = item->second.id;
             impl->session->last_stop_breakpoint_address = item->second.native.address;
             impl->session->has_last_stop_breakpoint_address = true;
+            impl->session->last_stop_breakpoint_hit_count = breakpoint_hit.hit_count;
+            impl->session->has_last_stop_breakpoint_hit_count = true;
             if (has_watchpoint_hit && watchpoint_hit.handle == native_breakpoint) {
                 impl->session->last_watchpoint_hit = watchpoint_hit;
                 impl->session->has_last_watchpoint_hit = true;
@@ -3507,6 +3646,7 @@ void AgentServer::OnProgramExited(const std::shared_ptr<Impl>& impl,
     active.last_stop_kind = "program_exit";
     active.last_stop_breakpoint_id.clear();
     active.has_last_stop_breakpoint_address = false;
+    active.has_last_stop_breakpoint_hit_count = false;
     active.has_last_watchpoint_hit = false;
     active.has_last_watchpoint_registers = false;
     active.pending_stop_kind.clear();

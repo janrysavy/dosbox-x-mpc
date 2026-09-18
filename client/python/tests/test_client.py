@@ -15,6 +15,8 @@ from dosbox_agent import (
     AgentClient,
     AgentConfig,
     AgentProtocolError,
+    BreakpointCondition,
+    BreakpointHitFilter,
     BreakpointNotFoundError,
     InvalidBinaryLengthError,
     MemoryAddress,
@@ -191,9 +193,9 @@ class AgentClientTests(unittest.TestCase):
             if method == "memory.write":
                 return {"result": {"session_id": "ses-1", "state_revision": 4, "address": address, "byte_count": 3, "before_sha256": "b" * 64, "after_sha256": "c" * 64}}
             if method == "breakpoints.create":
-                return {"result": {"session_id": "ses-1", "state_revision": 5, "breakpoint_id": "bp-1", "kind": "execution", "length": 1, "once": False, "address": address}}
+                return {"result": {"session_id": "ses-1", "state_revision": 5, "breakpoint_id": "bp-1", "kind": "execution", "length": 1, "once": False, "address": address, "condition": None, "hit_filter": {"skip": 0, "every": 1}}}
             if method == "breakpoints.list":
-                return {"result": {"session_id": "ses-1", "state_revision": 5, "breakpoints": [{"breakpoint_id": "bp-1", "kind": "execution", "length": 1, "enabled": True, "once": False, "address": address}]}}
+                return {"result": {"session_id": "ses-1", "state_revision": 5, "breakpoints": [{"breakpoint_id": "bp-1", "kind": "execution", "length": 1, "enabled": True, "once": False, "address": address, "condition": None, "hit_filter": {"skip": 0, "every": 1}}]}}
             if method == "breakpoints.delete":
                 return {"result": {"session_id": "ses-1", "state_revision": 6, "breakpoint_id": "bp-1", "deleted": True}}
             if method == "debug.output.read":
@@ -252,7 +254,8 @@ class AgentClientTests(unittest.TestCase):
                 return {"result": {
                     "session_id": "ses-1", "state_revision": 2, "breakpoint_id": "bp-watch",
                     "kind": params["kind"], "length": params["length"], "once": params["once"],
-                    "address": params["address"],
+                    "address": params["address"], "condition": params.get("condition"),
+                    "hit_filter": params["hit_filter"],
                 }}
             if request["method"] == "execution.wait":
                 register_values = registers_result(3)
@@ -260,7 +263,7 @@ class AgentClientTests(unittest.TestCase):
                 return {"result": {
                     "session_id": "ses-1", "state_revision": 3, "state": "stopped",
                     "stop_reason": {
-                        "kind": "breakpoint", "breakpoint_id": "bp-watch",
+                        "kind": "breakpoint", "breakpoint_id": "bp-watch", "hit_count": 4,
                         "address": watched_address,
                         "access": {
                             "kind": "write", "address": access_address, "byte_count": 2,
@@ -278,21 +281,50 @@ class AgentClientTests(unittest.TestCase):
         breakpoint = client.create_watchpoint(
             "ses-1", "memory_write", MemoryAddress.segmented(0x0812, 0x0200),
             length=3, once=True,
+            hit_filter=BreakpointHitFilter(skip=2, every=2),
         )
         self.assertEqual("memory_write", breakpoint.kind)
         self.assertEqual(3, breakpoint.length)
         self.assertTrue(breakpoint.once)
+        self.assertIsNone(breakpoint.condition)
+        self.assertEqual(BreakpointHitFilter(skip=2, every=2), breakpoint.hit_filter)
         self.assertEqual(3, transport.requests[0]["params"]["length"])
 
         stopped = client.wait("ses-1", "op-1", 100).session.stop_reason
         self.assertIsNotNone(stopped)
         self.assertEqual("bp-watch", stopped.breakpoint_id)
+        self.assertEqual(4, stopped.hit_count)
         self.assertEqual("write", stopped.access.kind)
         self.assertEqual(b"\x00\x00", stopped.access.before)
         self.assertEqual(b"CB", stopped.access.after)
         self.assertEqual("0x00000109", stopped.access.instruction_address.offset)
         self.assertEqual("after_instruction", stopped.registers.phase)
         self.assertEqual(3, stopped.registers.state_revision)
+
+    def test_execution_breakpoint_condition_is_typed_and_watch_condition_is_rejected(self) -> None:
+        def handler(request: dict) -> dict:
+            params = request["params"]
+            return {"result": {
+                "session_id": "ses-1", "state_revision": 2, "breakpoint_id": "bp-condition",
+                "kind": params["kind"], "length": params["length"], "once": params["once"],
+                "address": params["address"], "condition": params["condition"],
+                "hit_filter": params["hit_filter"],
+            }}
+
+        transport = FakeTransport(handler)
+        client = AgentClient(make_config(), transport)
+        condition = BreakpointCondition("ax", "eq", 0x1234)
+        breakpoint = client.create_execution_breakpoint(
+            "ses-1", 0x0812, 0x0106, condition=condition,
+            hit_filter=BreakpointHitFilter(skip=1, every=3),
+        )
+        self.assertEqual(condition, breakpoint.condition)
+        self.assertEqual("0x00001234", transport.requests[0]["params"]["condition"]["value"])
+        with self.assertRaisesRegex(ValueError, "only on execution"):
+            client.create_watchpoint(
+                "ses-1", "memory_write", MemoryAddress.linear(0x100),
+                condition=condition,
+            )
 
     def test_watchpoint_stop_rejects_malformed_binary_evidence(self) -> None:
         address = {"space": "linear", "offset": "0x00008320"}

@@ -272,6 +272,30 @@ temporary = agent.create_execution_breakpoint(
 )
 ```
 
+Execution breakpoints can filter on a structured register comparison and on
+the count of condition-matching encounters:
+
+```python
+from dosbox_agent import BreakpointCondition, BreakpointHitFilter
+
+filtered = agent.create_execution_breakpoint(
+    session.id,
+    regs.segments["cs"],
+    "0x00001400",
+    condition=BreakpointCondition("ax", "ne", 1),
+    hit_filter=BreakpointHitFilter(skip=1, every=2),
+)
+```
+
+The condition is evaluated before the instruction. Only condition matches
+increment `hit_count`. `skip=1` ignores the first such match; `every=2` then
+stops on the first eligible match and every second match after it. The stop
+reason reports the selected `hit_count`, and create/list return the normalized
+condition and filter. Supported lowercase registers and `eq`/`ne` operators
+come from `capabilities["breakpoints"]`. Register conditions are deliberately
+limited to execution breakpoints; hit filters also apply to exact access
+watchpoints.
+
 ### 6.4 读取寄存器和内存
 
 寄存器和内存观察只能在 `stopped` 状态进行。运行时调用会抛出 `TargetRunningError`。

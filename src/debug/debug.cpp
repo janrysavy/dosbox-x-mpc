@@ -652,6 +652,8 @@ public:
 		watchWrite = on_write;
 		type = BKPNT_MEMORY_ACCESS;
 	};
+	bool                    ConfigurePolicy (const DEBUG_AgentBreakpointPolicy& policy);
+	bool                    MatchesPolicy   (void);
 
 	bool					IsActive		(void)						{ return active; };
 	void					Activate		(bool _active);
@@ -664,6 +666,7 @@ public:
 	uint8_t					GetIntNr		(void)						{ return intNr; };
 	uint16_t					GetValue		(void)						{ return ahValue; };
 	uint16_t					GetOther		(void)						{ return alValue; };
+	uint64_t                GetMatchCount   (void) const                { return matchCount; };
 
 	// statics
 	static CBreakpoint*		AddBreakpoint		(uint16_t seg, uint32_t off, bool once);
@@ -705,6 +708,13 @@ private:
 	uint32_t        watchLength;
 	bool            watchRead;
 	bool            watchWrite;
+	std::string     conditionRegister;
+	uint32_t        conditionValue;
+	uint32_t        filterSkip;
+	uint32_t        filterEvery;
+	uint64_t        matchCount;
+	bool            conditionEnabled;
+	bool            conditionEqual;
 	// Shared
 	bool		active;
 	bool		once;
@@ -729,12 +739,99 @@ static uint16_t agent_watch_instruction_cs = 0;
 static uint32_t agent_watch_instruction_ip = 0;
 #endif
 
+static uint64_t agent_breakpoint_hit_count = 0;
+
+#if defined(C_DOSBOX_AGENT)
+static bool DEBUG_AgentReadConditionRegister(const std::string& name,
+                                             uint32_t* value)
+{
+	if (value == nullptr) return false;
+	if (name == "eax") *value = reg_eax;
+	else if (name == "ebx") *value = reg_ebx;
+	else if (name == "ecx") *value = reg_ecx;
+	else if (name == "edx") *value = reg_edx;
+	else if (name == "esi") *value = reg_esi;
+	else if (name == "edi") *value = reg_edi;
+	else if (name == "ebp") *value = reg_ebp;
+	else if (name == "esp") *value = reg_esp;
+	else if (name == "eip") *value = reg_eip;
+	else if (name == "eflags") *value = static_cast<uint32_t>(reg_flags);
+	else if (name == "ax") *value = reg_ax;
+	else if (name == "bx") *value = reg_bx;
+	else if (name == "cx") *value = reg_cx;
+	else if (name == "dx") *value = reg_dx;
+	else if (name == "si") *value = reg_si;
+	else if (name == "di") *value = reg_di;
+	else if (name == "bp") *value = reg_bp;
+	else if (name == "sp") *value = reg_sp;
+	else if (name == "ip") *value = reg_ip;
+	else if (name == "al") *value = reg_al;
+	else if (name == "bl") *value = reg_bl;
+	else if (name == "cl") *value = reg_cl;
+	else if (name == "dl") *value = reg_dl;
+	else if (name == "ah") *value = reg_ah;
+	else if (name == "bh") *value = reg_bh;
+	else if (name == "ch") *value = reg_ch;
+	else if (name == "dh") *value = reg_dh;
+	else if (name == "cs") *value = SegValue(cs);
+	else if (name == "ds") *value = SegValue(ds);
+	else if (name == "es") *value = SegValue(es);
+	else if (name == "fs") *value = SegValue(fs);
+	else if (name == "gs") *value = SegValue(gs);
+	else if (name == "ss") *value = SegValue(ss);
+	else return false;
+	return true;
+}
+#endif
+
 CBreakpoint::CBreakpoint(void):type(BKPNT_UNKNOWN),location(0),
 #if !C_HEAVY_DEBUG
 oldData(0xCC),
 #endif
 segment(0),offset(0),intNr(0),ahValue(0),alValue(0),watchLength(0),
-watchRead(false),watchWrite(false),active(false),once(false) { }
+watchRead(false),watchWrite(false),conditionValue(0),filterSkip(0),filterEvery(1),
+matchCount(0),conditionEnabled(false),conditionEqual(true),active(false),once(false) { }
+
+bool CBreakpoint::ConfigurePolicy(const DEBUG_AgentBreakpointPolicy& policy)
+{
+#if defined(C_DOSBOX_AGENT)
+	if (policy.every == 0 ||
+	    (policy.condition_enabled && policy.register_name == nullptr))
+		return false;
+	uint32_t ignored = 0;
+	if (policy.condition_enabled &&
+	    !DEBUG_AgentReadConditionRegister(policy.register_name, &ignored))
+		return false;
+	conditionRegister = policy.condition_enabled ? policy.register_name : "";
+	conditionEnabled = policy.condition_enabled;
+	conditionEqual = policy.condition_equal;
+	conditionValue = policy.condition_value;
+	filterSkip = policy.skip;
+	filterEvery = policy.every;
+	return true;
+#else
+	(void)policy;
+	return false;
+#endif
+}
+
+bool CBreakpoint::MatchesPolicy(void)
+{
+#if defined(C_DOSBOX_AGENT)
+	if (conditionEnabled) {
+		uint32_t actual = 0;
+		if (!DEBUG_AgentReadConditionRegister(conditionRegister, &actual) ||
+		    ((actual == conditionValue) != conditionEqual))
+			return false;
+	}
+	++matchCount;
+	if (matchCount <= filterSkip)
+		return false;
+	return ((matchCount - filterSkip - 1u) % filterEvery) == 0;
+#else
+	return true;
+#endif
+}
 
 void CBreakpoint::Activate(bool _active)
 {
@@ -840,7 +937,8 @@ CBreakpoint* CBreakpoint::MatchMemoryAccess(bool write,
 			continue;
 		const uint64_t watch_begin = bp->GetLocation();
 		const uint64_t watch_end = watch_begin + bp->watchLength;
-		if (access_begin < watch_end && watch_begin < access_end)
+		if (access_begin < watch_end && watch_begin < access_end &&
+		    bp->MatchesPolicy())
 			return bp;
 	}
 	return nullptr;
@@ -899,15 +997,17 @@ bool CBreakpoint::CheckBreakpoint(uint16_t seg, uint32_t off)
 		CBreakpoint *bp = (*i);
 
 		if ((bp->GetType() == BKPNT_PHYSICAL) && bp->IsActive() &&
-		    (bp->GetLocation() == GetAddress(seg, off))) {
+		    (bp->GetLocation() == GetAddress(seg, off)) && bp->MatchesPolicy()) {
 			// Found
 			lastTriggered = bp;
+			agent_breakpoint_hit_count = bp->GetMatchCount();
 			if (bp->GetOnce()) {
 				// delete it, if it should only be used once
 				(BPoints.erase)(i);
 				bp->Activate(false);
 				delete bp;
 			} else {
+			#if !defined(C_DOSBOX_AGENT)
 				// Also look for once-only breakpoints at this address
 				bp = FindPhysBreakpoint(seg, off, true);
 				if (bp) {
@@ -915,6 +1015,7 @@ bool CBreakpoint::CheckBreakpoint(uint16_t seg, uint32_t off)
 					bp->Activate(false);
 					delete bp;
 				}
+			#endif
 			}
 			return true;
 		}
@@ -945,7 +1046,9 @@ bool CBreakpoint::CheckBreakpoint(uint16_t seg, uint32_t off)
                     }
 					DEBUG_ShowMsg("DEBUG: Memory breakpoint %s: %04X:%04X - %02X -> %02X\n",(bp->GetType()==BKPNT_MEMORY_PROT)?"(Prot)":"",bp->GetSegment(),bp->GetOffset(),bp->GetValue(),value);
 					bp->SetValue(value);
+					if (!bp->MatchesPolicy()) continue;
 					lastTriggered = bp;
+					agent_breakpoint_hit_count = bp->GetMatchCount();
 					return true;
 				}
 			}
@@ -994,6 +1097,7 @@ void CBreakpoint::DeleteAll()
 	}
 	(BPoints.clear)();
 	lastTriggered = nullptr;
+	agent_breakpoint_hit_count = 0;
 	RefreshAgentMemoryWatch();
 #if C_HEAVY_DEBUG && defined(C_DOSBOX_AGENT)
 	agent_watch_instruction_active = false;
@@ -1401,14 +1505,37 @@ bool DEBUG_AgentDeleteBreakpoint(uintptr_t handle)
 	return CBreakpoint::DeleteBreakpoint(reinterpret_cast<CBreakpoint*>(handle));
 }
 
+bool DEBUG_AgentConfigureBreakpoint(uintptr_t handle,
+                                    const DEBUG_AgentBreakpointPolicy* policy)
+{
+	if (handle == 0 || policy == nullptr)
+		return false;
+	return reinterpret_cast<CBreakpoint*>(handle)->ConfigurePolicy(*policy);
+}
+
+bool DEBUG_AgentConsumeBreakpointHit(DEBUG_AgentBreakpointHit* hit)
+{
+	if (hit == nullptr)
+		return false;
+	CBreakpoint* breakpoint = CBreakpoint::ConsumeLastTriggered();
+	if (breakpoint == nullptr)
+		return false;
+	hit->handle = reinterpret_cast<uintptr_t>(breakpoint);
+	hit->hit_count = agent_breakpoint_hit_count;
+	agent_breakpoint_hit_count = 0;
+	return true;
+}
+
 uintptr_t DEBUG_AgentConsumeLastBreakpoint(void)
 {
-	return reinterpret_cast<uintptr_t>(CBreakpoint::ConsumeLastTriggered());
+	DEBUG_AgentBreakpointHit hit;
+	return DEBUG_AgentConsumeBreakpointHit(&hit) ? hit.handle : 0;
 }
 
 void DEBUG_AgentClearLastBreakpoint(void)
 {
 	(void)CBreakpoint::ConsumeLastTriggered();
+	agent_breakpoint_hit_count = 0;
 }
 
 #if C_HEAVY_DEBUG
@@ -6832,6 +6959,8 @@ bool DEBUG_HeavyIsBreakpoint(void) {
 		agent_watch_ready = true;
 		agent_watch_breakpoint = nullptr;
 		CBreakpoint::lastTriggered = breakpoint;
+		agent_breakpoint_hit_count = breakpoint != nullptr ?
+		        breakpoint->GetMatchCount() : 0;
 		if (breakpoint != nullptr && breakpoint->GetOnce()) {
 			CBreakpoint::BPoints.remove(breakpoint);
 			delete breakpoint;

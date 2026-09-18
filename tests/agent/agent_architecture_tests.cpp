@@ -182,6 +182,10 @@ TEST(AgentProtocol, ReportsBuildCapabilitiesAndLimits)
     EXPECT_NE(std::string::npos, response.find("\"max_memory_read_bytes\":64"));
     EXPECT_NE(std::string::npos, response.find("\"snapshot\":true"));
     EXPECT_NE(std::string::npos, response.find("\"exact_access_requires_normal_core\":true"));
+    EXPECT_NE(std::string::npos, response.find("\"condition_registers\":[\"eax\""));
+    EXPECT_NE(std::string::npos, response.find("\"condition_operators\":[\"eq\",\"ne\"]"));
+    EXPECT_NE(std::string::npos, response.find("\"conditional_kinds\":[\"execution\"]"));
+    EXPECT_NE(std::string::npos, response.find("\"hit_filter\":true"));
 }
 
 TEST(AgentProtocol, ValidatesExactWatchpointKindsAndLengthsBeforeDispatch)
@@ -209,6 +213,30 @@ TEST(AgentProtocol, ValidatesExactWatchpointKindsAndLengthsBeforeDispatch)
             "\"params\":{\"session_id\":\"ses-1\",\"kind\":\"memory_access\",\"length\":65,"
             "\"address\":{\"space\":\"linear\",\"offset\":\"0x00010200\"}}}");
     EXPECT_NE(std::string::npos, oversized_watch.find("REQUEST_TOO_LARGE"));
+
+    const std::string invalid_condition = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"bad-condition\",\"method\":\"breakpoints.create\","
+            "\"params\":{\"session_id\":\"ses-1\",\"kind\":\"execution\","
+            "\"condition\":{\"register\":\"AX\",\"operator\":\"eq\",\"value\":\"0x00000001\"},"
+            "\"address\":{\"space\":\"segmented\",\"segment\":\"0x1000\",\"offset\":\"0x00000100\"}}}");
+    EXPECT_NE(std::string::npos, invalid_condition.find("\"code\":-32602"));
+    EXPECT_NE(std::string::npos, invalid_condition.find("supported lowercase register"));
+
+    const std::string invalid_filter = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"bad-filter\",\"method\":\"breakpoints.create\","
+            "\"params\":{\"session_id\":\"ses-1\",\"kind\":\"execution\","
+            "\"hit_filter\":{\"skip\":0,\"every\":0},"
+            "\"address\":{\"space\":\"segmented\",\"segment\":\"0x1000\",\"offset\":\"0x00000100\"}}}");
+    EXPECT_NE(std::string::npos, invalid_filter.find("\"code\":-32602"));
+    EXPECT_NE(std::string::npos, invalid_filter.find("hit_filter.every must be positive"));
+
+    const std::string watch_condition = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"watch-condition\",\"method\":\"breakpoints.create\","
+            "\"params\":{\"session_id\":\"ses-1\",\"kind\":\"memory_write\","
+            "\"condition\":{\"register\":\"ax\",\"operator\":\"eq\",\"value\":\"0x00000001\"},"
+            "\"address\":{\"space\":\"linear\",\"offset\":\"0x00010200\"}}}");
+    EXPECT_NE(std::string::npos, watch_condition.find("\"code\":-32602"));
+    EXPECT_NE(std::string::npos, watch_condition.find("only on execution breakpoints"));
 }
 
 TEST(AgentVideo, ReturnsOneAtomicTypedSnapshotAndRejectsRunningTargets)

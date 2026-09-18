@@ -99,12 +99,31 @@ enum class BreakpointKind {
     MemoryAccess
 };
 
+struct BreakpointCondition {
+    bool enabled = false;
+    std::string register_name;
+    bool equal = true;
+    std::uint32_t value = 0;
+};
+
+struct BreakpointHitFilter {
+    std::uint32_t skip = 0;
+    std::uint32_t every = 1;
+};
+
 struct NativeBreakpoint {
     std::uintptr_t handle = 0;
     BreakpointKind kind = BreakpointKind::Execution;
     MemoryAddress address;
     std::uint32_t length = 1;
     bool once = false;
+    BreakpointCondition condition;
+    BreakpointHitFilter hit_filter;
+};
+
+struct BreakpointHit {
+    std::uintptr_t handle = 0;
+    std::uint64_t hit_count = 0;
 };
 
 struct WatchpointHit {
@@ -147,11 +166,13 @@ public:
                           const MemoryAddress& address,
                           std::uint32_t length,
                           bool once,
+                          const BreakpointCondition& condition,
+                          const BreakpointHitFilter& hit_filter,
                           NativeBreakpoint* breakpoint,
                           MemoryAccessError* access_error,
                           std::string* error) const;
     bool DeleteBreakpoint(const NativeBreakpoint& breakpoint, std::string* error) const;
-    std::uintptr_t ConsumeLastBreakpointHandle() const;
+    bool ConsumeLastBreakpointHit(BreakpointHit* hit) const;
     bool ConsumeLastWatchpointHit(WatchpointHit* hit) const;
     bool ExecuteDiagnosticCommand(const std::string& command,
                                   std::string* raw_output,
