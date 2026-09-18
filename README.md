@@ -7,8 +7,8 @@
 > `execution.continue/run_until/pause/step/wait`; register and memory access;
 > breakpoints, watchpoints, checkpoints, keyboard/joystick input, video snapshots,
 > and CPU, hardware, and DOS file tracing. See the
-> [debugger-agent command guide](docs/rpc-agent-usage.md) for the complete supported
-> surface and examples.
+> [complete debugger-agent API and command reference](docs/DEBUGGER_AGENT_API.md) for
+> exact request, response, state, safety, and evidence semantics.
 >
 > Read [AI_REVERSE_ENGINEERING.md](AI_REVERSE_ENGINEERING.md) before using or rebasing
 > the fork. The current protocol is JSON-RPC over a Windows named pipe; despite the

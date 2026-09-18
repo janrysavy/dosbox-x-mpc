@@ -34,9 +34,12 @@ Protocol (MCP) server and does not implement `tools/list`; it is custom JSON-RPC
 future MCP adapter should remain thin and delegate debugger state and semantics to this
 service.
 
-The implementation guide is [docs/rpc-agent-usage.md](docs/rpc-agent-usage.md). The
-server source and typed client are authoritative if historical prose differs from the
-implementation.
+The canonical command contract is
+[docs/DEBUGGER_AGENT_API.md](docs/DEBUGGER_AGENT_API.md). It defines every supported
+method, request and response shape, state rule, safety constraint, and evidence caveat.
+The older [implementation guide](docs/rpc-agent-usage.md) provides additional examples,
+but may lag the canonical contract. The server source and typed client remain
+authoritative if documentation differs from the implementation.
 
 ## Building and testing
 
