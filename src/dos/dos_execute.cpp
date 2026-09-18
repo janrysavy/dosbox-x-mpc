@@ -30,6 +30,9 @@
 #include "regs.h"
 #include "callback.h"
 #include "debug.h"
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+#include "agent/agent_bridge.h"
+#endif
 #include "cpu.h"
 #include "menu.h"
 #include "crc32.h"
@@ -151,6 +154,13 @@ void DOS_Terminate(uint16_t pspseg,bool tsr,uint8_t exitcode) {
 	DOS_UpdatePSPName();
 
 	dos.errorcode=0;
+
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+    /* MCP_HEADLESS_STOP: unlike session.stop, this event is emitted by DOS
+       after the guest's terminate request has actually restored its parent and
+       released its process memory. The agent matches the PSP to its target. */
+    dosbox_agent::AGENT_NotifyProgramExited(pspseg, exitcode, tsr);
+#endif
 
 	if ((!(CPU_AutoDetermineMode>>CPU_AUTODETERMINE_SHIFT)) || (cpu.pmode)) return;
 

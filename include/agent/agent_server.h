@@ -45,6 +45,11 @@ private:
                                   std::uint64_t generation,
                                   std::uint16_t segment,
                                   std::uint32_t instruction_pointer);
+    static void OnProgramExited(const std::shared_ptr<Impl>& impl,
+                                std::uint64_t generation,
+                                std::uint16_t psp,
+                                std::uint8_t exit_code,
+                                bool tsr);
 
     std::shared_ptr<Impl> impl;
 };

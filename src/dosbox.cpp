@@ -1767,6 +1767,9 @@ void DOSBOX_SetupConfigSections(void) {
     Pbool = secprop->Add_bool("bochs debug port e9",Property::Changeable::WhenIdle,false);
     Pbool->Set_help("If set, emulate Bochs debug port E9h. ASCII text written to this I/O port is assumed to be debug output, and logged.");
 
+    Pbool = secprop->Add_bool("mcp_stdio", Property::Changeable::OnlyAtStart, false);
+    Pbool->Set_help("Serve the debugger's MCP control protocol over stdin/stdout instead of connecting to a TCP server. Used by the reverse-engineering harness, which drives the debugger by piping REQ lines in.");
+
     Pint = secprop->Add_int("mcp_server", Property::Changeable::OnlyAtStart, 0);
     Pint->SetMinMax(0, 65535);
     Pint->Set_help("TCP port of the external debugger MCP server on 127.0.0.1. Set to 0 to disable debugger MCP control.");

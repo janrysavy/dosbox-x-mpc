@@ -547,6 +547,12 @@ public:
         std::string id;
         std::string target_command;
         SessionState state = SessionState::Starting;
+        std::uint16_t target_psp = 0;
+        bool has_target_psp = false;
+        bool termination_by_agent = false;
+        std::uint16_t exit_psp = 0;
+        std::uint8_t exit_code = 0;
+        bool exit_was_tsr = false;
         std::string last_stop_kind;
         std::uint16_t last_stop_segment = 0;
         std::uint32_t last_stop_instruction_pointer = 0;
@@ -600,6 +606,7 @@ public:
     virtual std::uint64_t Submit(Command command) = 0;
     virtual std::uint64_t SubmitAfter(std::uint32_t delay_ms, Command command) = 0;
     virtual bool IsReadyForTargetStart() const = 0;
+    virtual std::uint16_t CurrentPsp() const = 0;
     virtual std::uint64_t EntryBreakpointSequence() const = 0;
     virtual bool Continue(std::string* error) const = 0;
     virtual bool Pause(std::string* error) const = 0;
@@ -657,6 +664,7 @@ public:
 #define AGENT_RUNTIME_FORWARD(method, signature, args) \
     signature override { DebuggerAdapter adapter; return adapter.method args; }
     AGENT_RUNTIME_FORWARD(IsReadyForTargetStart, bool IsReadyForTargetStart() const, ())
+    AGENT_RUNTIME_FORWARD(CurrentPsp, std::uint16_t CurrentPsp() const, ())
     AGENT_RUNTIME_FORWARD(EntryBreakpointSequence, std::uint64_t EntryBreakpointSequence() const, ())
     AGENT_RUNTIME_FORWARD(Continue, bool Continue(std::string* error) const, (error))
     AGENT_RUNTIME_FORWARD(Pause, bool Pause(std::string* error) const, (error))
@@ -691,6 +699,7 @@ public:
     }
 
     bool IsReadyForTargetStart() const override { return true; }
+    std::uint16_t CurrentPsp() const override { return 0x1000; }
     std::uint64_t EntryBreakpointSequence() const override { return 0; }
 
     bool Continue(std::string*) const override { return true; }
@@ -710,7 +719,11 @@ public:
         return true;
     }
 
-    bool TerminateTarget(std::string*) const override { return true; }
+    bool TerminateTarget(std::string*) const override
+    {
+        AGENT_NotifyProgramExited(CurrentPsp(), 0, false);
+        return true;
+    }
 
 #define AGENT_RUNTIME_UNAVAILABLE(method, signature) \
     signature override { SetUnavailable(error); return false; }
@@ -943,6 +956,11 @@ static JsonValue StopReason(const AgentServer::Impl::Session& session)
     Add(&stop, "kind", String(session.last_stop_kind));
     if (!session.last_stop_breakpoint_id.empty())
         Add(&stop, "breakpoint_id", String(session.last_stop_breakpoint_id));
+    if (session.last_stop_kind == "program_exit") {
+        Add(&stop, "psp", Number(session.exit_psp));
+        Add(&stop, "exit_code", Number(session.exit_code));
+        Add(&stop, "tsr", JsonValue::Bool(session.exit_was_tsr));
+    }
     if (session.has_last_stop_breakpoint_address) {
         Add(&stop, "address", EncodeMemoryAddress(session.last_stop_breakpoint_address));
     } else if (session.last_stop_kind == "startup" || session.last_stop_kind == "step" ||
@@ -1282,6 +1300,9 @@ bool AgentServer::Start(const AgentConfig& config, std::string* error)
     AGENT_SetDebuggerStopListener([state, generation](const std::uint16_t segment, const std::uint32_t instruction_pointer) {
         OnDebuggerStopped(state, generation, segment, instruction_pointer);
     });
+    AGENT_SetProgramExitListener([state, generation](const std::uint16_t psp, const std::uint8_t exit_code, const bool tsr) {
+        OnProgramExited(state, generation, psp, exit_code, tsr);
+    });
 
     if (!impl->transport->Start(config, [state](const std::string& request) {
             return HandleJsonRpcImpl(state, request);
@@ -1291,6 +1312,7 @@ bool AgentServer::Start(const AgentConfig& config, std::string* error)
         impl->started = false;
         impl->stopping = false;
         AGENT_SetDebuggerStopListener(DebuggerStopListener());
+        AGENT_SetProgramExitListener(ProgramExitListener());
         return false;
     }
     return true;
@@ -1330,6 +1352,9 @@ bool AgentServer::StartForTest(const AgentConfig& config, std::string* error)
     AGENT_SetDebuggerStopListener([state, generation](const std::uint16_t segment, const std::uint32_t instruction_pointer) {
         OnDebuggerStopped(state, generation, segment, instruction_pointer);
     });
+    AGENT_SetProgramExitListener([state, generation](const std::uint16_t psp, const std::uint8_t exit_code, const bool tsr) {
+        OnProgramExited(state, generation, psp, exit_code, tsr);
+    });
     return true;
 }
 
@@ -1355,6 +1380,7 @@ void AgentServer::Stop()
     // The callback may already have been copied by the emulation thread. It
     // holds shared state and observes stopping, rather than touching this.
     AGENT_SetDebuggerStopListener(DebuggerStopListener());
+    AGENT_SetProgramExitListener(ProgramExitListener());
     if (transport)
         transport->Stop();
 
@@ -1622,6 +1648,8 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
         Add(&result, "state", String(StateName(session->state)));
         JsonValue target = Object();
         Add(&target, "command", String(session->target_command));
+        if (session->has_target_psp)
+            Add(&target, "psp", Number(session->target_psp));
         Add(&result, "target", target);
         if (session->state == Impl::SessionState::Starting) {
             JsonValue startup = Object();
@@ -1875,12 +1903,12 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
             Impl::Operation operation_state;
             operation_state.id = operation_id;
             operation_state.terminal_state = Impl::SessionState::Exited;
-            operation_state.stop_kind = "program_exit";
+            operation_state.stop_kind = "session_stop";
             operation_state.complete = true;
             session->operations[operation_id] = operation_state;
             session->state = Impl::SessionState::Exited;
             session->trace.Stop();
-            session->last_stop_kind = "program_exit";
+            session->last_stop_kind = "session_stop";
             session->last_stop_breakpoint_id.clear();
             session->has_last_stop_breakpoint_address = false;
             ++session->state_revision;
@@ -1893,12 +1921,28 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
             Impl::Operation operation_state;
             operation_state.id = operation_id;
             operation_state.terminal_state = Impl::SessionState::Exited;
-            operation_state.stop_kind = "program_exit";
+            operation_state.stop_kind = "session_stop";
             session->operations[operation_id] = operation_state;
             const std::string session_id = session->id;
             session->termination_deadline = std::chrono::steady_clock::now() +
                     std::chrono::milliseconds(impl->config.request_timeout_ms);
             if (SubmitEmulationCommandLocked(impl, [impl, session_id, operation_id](const std::uint64_t) {
+                    {
+                        std::lock_guard<std::mutex> command_lock(impl->mutex);
+                        if (!impl->session || impl->session->id != session_id)
+                            return;
+                        Impl::Session& active = *impl->session;
+                        std::map<std::string, Impl::Operation>::iterator pending =
+                                active.operations.find(operation_id);
+                        // Natural exit and controller termination are ordered on
+                        // this emulation thread. If DOS won, its callback already
+                        // completed this operation as program_exit; otherwise
+                        // claim it immediately before calling DOS_Terminate.
+                        if (active.state == Impl::SessionState::Exited ||
+                            pending == active.operations.end() || pending->second.complete)
+                            return;
+                        active.termination_by_agent = true;
+                    }
                     AgentRuntime& adapter = *impl->runtime;
                     std::string adapter_error;
                     const bool success = adapter.TerminateTarget(&adapter_error);
@@ -2984,14 +3028,14 @@ void AgentServer::CompleteTargetTerminationOnEmulationThread(const std::shared_p
 
     active.state = Impl::SessionState::Exited;
     active.trace.Stop();
-    active.last_stop_kind = "program_exit";
+    active.last_stop_kind = "session_stop";
     active.last_stop_breakpoint_id.clear();
     active.has_last_stop_breakpoint_address = false;
     ++active.state_revision;
     for (std::map<std::string, Impl::Operation>::iterator item = active.operations.begin(); item != active.operations.end(); ++item) {
         if (!item->second.complete) {
             item->second.terminal_state = Impl::SessionState::Exited;
-            item->second.stop_kind = "program_exit";
+            item->second.stop_kind = "session_stop";
             item->second.complete = true;
         }
     }
@@ -3030,6 +3074,10 @@ void AgentServer::OnDebuggerStopped(const std::shared_ptr<Impl>& impl,
         return;
 
     const bool startup = impl->session->state == Impl::SessionState::Starting;
+    if (startup) {
+        impl->session->target_psp = adapter.CurrentPsp();
+        impl->session->has_target_psp = impl->session->target_psp != 0;
+    }
     const bool trace_completed = impl->session->trace.IsActive() && trace_read && !native_trace_active;
     if (impl->session->trace.IsActive() && trace_read) {
         impl->session->trace.Merge(trace_samples);
@@ -3071,6 +3119,47 @@ void AgentServer::OnDebuggerStopped(const std::shared_ptr<Impl>& impl,
         }
     }
     impl->session->pending_stop_kind.clear();
+    impl->state_changed.notify_all();
+}
+
+void AgentServer::OnProgramExited(const std::shared_ptr<Impl>& impl,
+                                  const std::uint64_t generation,
+                                  const std::uint16_t psp,
+                                  const std::uint8_t exit_code,
+                                  const bool tsr)
+{
+    EmulationLease lease(impl, generation);
+    if (!lease.IsActive())
+        return;
+
+    std::lock_guard<std::mutex> lock(impl->mutex);
+    if (impl->stopping || !impl->session)
+        return;
+    Impl::Session& active = *impl->session;
+    if (active.termination_by_agent || !active.has_target_psp || active.target_psp != psp)
+        return;
+    if (active.state != Impl::SessionState::Running &&
+        active.state != Impl::SessionState::Stopped)
+        return;
+
+    active.state = Impl::SessionState::Exited;
+    active.trace.Stop();
+    active.exit_psp = psp;
+    active.exit_code = exit_code;
+    active.exit_was_tsr = tsr;
+    active.last_stop_kind = "program_exit";
+    active.last_stop_breakpoint_id.clear();
+    active.has_last_stop_breakpoint_address = false;
+    active.pending_stop_kind.clear();
+    ++active.state_revision;
+    for (std::map<std::string, Impl::Operation>::iterator item = active.operations.begin();
+         item != active.operations.end(); ++item) {
+        if (!item->second.complete) {
+            item->second.terminal_state = Impl::SessionState::Exited;
+            item->second.stop_kind = "program_exit";
+            item->second.complete = true;
+        }
+    }
     impl->state_changed.notify_all();
 }
 

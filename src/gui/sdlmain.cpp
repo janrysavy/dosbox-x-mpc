@@ -1648,6 +1648,15 @@ void PauseDOSBoxLoop(Bitu /*unused*/) {
 #endif
 
     while (paused) {
+#if C_DEBUG
+        /* Keep the debugger's control channel alive while the emulator is paused,
+           so a harness can still read state (added by the harness patch). */
+        {
+            void ControlServer_Poll();
+            ControlServer_Poll();
+        }
+#endif
+
         if (unpause_now) {
             unpause_now = false;
             break;
@@ -8491,6 +8500,11 @@ int main(int argc, char* argv[]) SDL_MAIN_NOEXCEPT {
             return 1;
         }
         LOG_MSG("%s", dosbox_agent::AGENT_FormatStartupLog(*agent_server.GetConfig()).c_str());
+#if defined(C_DEBUG) && C_DEBUG
+        /* MCP_HEADLESS_STOP: an agent-controlled process has no debugger
+           console, so a stop must not install one over the channel. */
+        DEBUG_SetHeadlessDebugger(true);
+#endif
     }
     if (control->opt_agent_self_test) {
         std::string agent_error;

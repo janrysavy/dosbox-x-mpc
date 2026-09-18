@@ -79,6 +79,7 @@ public:
     bool RequireAvailable(std::string* error) const;
     bool IsShellReady() const;
     bool IsReadyForTargetStart() const;
+    std::uint16_t CurrentPsp() const;
     std::uint64_t EntryBreakpointSequence() const;
     bool Continue(std::string* error) const;
     bool Pause(std::string* error) const;

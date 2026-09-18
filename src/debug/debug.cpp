@@ -1131,20 +1131,24 @@ bool DEBUG_AgentResumeAfterTerminate(void)
 	// callback stop trampoline that must be observed by the enclosing
 	// CALLBACK_RunRealInt invocation. Stepping here consumes that trampoline
 	// inside the debugger and strands the synchronous DEBUGBOX command frame.
-	DrawRegistersUpdateOld();
+	if (!debug_headless_stop) {
+		DrawRegistersUpdateOld();
+		DrawCode();
+		DrawInput();
+	}
 	debug_running = false;
 	debugging = false;
-	DrawCode();
-	DrawInput();
 	logBuffSuppressConsole = false;
 	if (logBuffSuppressConsoleNeedUpdate) {
 		logBuffSuppressConsoleNeedUpdate = false;
 		DEBUG_RefreshPage(0);
 	}
 	CBreakpoint::ActivateBreakpoints();
-	mainMenu.get_item("debugger_rundebug").check(false).refresh_item(mainMenu);
-	mainMenu.get_item("debugger_runnormal").check(true).refresh_item(mainMenu);
-	mainMenu.get_item("debugger_runwatch").check(false).refresh_item(mainMenu);
+	if (!debug_headless_stop) {
+		mainMenu.get_item("debugger_rundebug").check(false).refresh_item(mainMenu);
+		mainMenu.get_item("debugger_runnormal").check(true).refresh_item(mainMenu);
+		mainMenu.get_item("debugger_runwatch").check(false).refresh_item(mainMenu);
+	}
 	DOSBOX_SetNormalLoop();
 	GFX_SetTitle(-1,-1,-1,is_paused);
 	return true;
@@ -2872,11 +2876,13 @@ bool ParseCommand(char* str) {
 	}
 
 	if (command == "RUN") {
-		DrawRegistersUpdateOld();
+		if (!debug_headless_stop) {
+			DrawRegistersUpdateOld();
+			DrawCode();
+			DrawInput();
+		}
 		debug_running = false;
 		debugging=false;
-		DrawCode();
-		DrawInput();
 		logBuffSuppressConsole = false;
 		if (logBuffSuppressConsoleNeedUpdate) {
 			logBuffSuppressConsoleNeedUpdate = false;
@@ -2888,9 +2894,11 @@ bool ParseCommand(char* str) {
 		inhibit_int_breakpoint = true;
 		DEBUG_Run(1,false);
 		inhibit_int_breakpoint = false;
-		mainMenu.get_item("debugger_rundebug").check(false).refresh_item(mainMenu);
-		mainMenu.get_item("debugger_runnormal").check(true).refresh_item(mainMenu);
-		mainMenu.get_item("debugger_runwatch").check(false).refresh_item(mainMenu);
+		if (!debug_headless_stop) {
+			mainMenu.get_item("debugger_rundebug").check(false).refresh_item(mainMenu);
+			mainMenu.get_item("debugger_runnormal").check(true).refresh_item(mainMenu);
+			mainMenu.get_item("debugger_runwatch").check(false).refresh_item(mainMenu);
+		}
 
 		DOSBOX_SetNormalLoop();	
 		GFX_SetTitle(-1,-1,-1,is_paused);
@@ -5131,6 +5139,23 @@ uint32_t DEBUG_CheckKeys(void) {
 
 Bitu DEBUG_LastRunningUpdate = 0;
 
+/* MCP_HEADLESS_STOP: stop the CPU without taking over stdin/stdout.
+   Declared here rather than next to its only writer because DEBUG_Loop below --
+   which runs whether or not the debugger was ever entered -- reads it. Set by
+   the agent's startup path; false (upstream behaviour) otherwise. */
+bool debug_headless_stop = false;
+void DEBUG_SetHeadlessDebugger(bool headless) {
+    debug_headless_stop = headless;
+    /* The marker string is functional, not decoration. Every other edit this
+       patch makes is a comment or control flow, and a build carries neither
+       into the executable -- so the only way a harness can say *this* binary
+       is the one the patch builds is to search it for a string the patch
+       introduced. `re/harness/agent.py` does exactly that, and the line also
+       tells anyone reading the emulator's log which mode it came up in. */
+    LOG_MSG("MCP_HEADLESS_STOP: headless debugger stops %s",
+            headless ? "enabled" : "disabled");
+}
+
 LoopHandler *DOSBOX_GetLoop(void);
 Bitu DEBUG_Loop(void);
 
@@ -5172,7 +5197,7 @@ Bitu DEBUG_Loop(void) {
     if (debug_running) {
         Bitu now = SDL_GetTicks();
 
-        if ((DEBUG_LastRunningUpdate + 33) < now) {
+        if (!debug_headless_stop && (DEBUG_LastRunningUpdate + 33) < now) {
             DEBUG_LastRunningUpdate = now;
             SetCodeWinStart();
             DEBUG_DrawScreen();
@@ -5186,7 +5211,17 @@ Bitu DEBUG_Loop(void) {
         // Interrupt started ? - then skip it
         uint16_t oldCS	= SegValue(cs);
         uint32_t oldEIP	= reg_eip;
-        PIC_runIRQs();
+        /* MCP_HEADLESS_STOP: `PIC_runIRQs` does not merely notice a pending
+           interrupt, it *takes* it -- `CPU_HW_Interrupt` pushes the flags, CS and
+           IP and jumps to the handler (`hardware/pic.cpp`, `master_startIRQ`).
+           In the console that is the point: the debugger follows an interrupt
+           handler. Headless, it means the CPU moves while the agent is being told
+           it is stopped, and the registers and CS:IP read a moment later describe
+           a different instruction than the one the stop was reported at. So a
+           headless stop does not service interrupts at all; they stay pending
+           (`PIC_IRQCheck` is untouched) and are taken the moment the session
+           continues, which is what "stopped" is supposed to mean. */
+        if (!debug_headless_stop) PIC_runIRQs();
         SDL_Delay(1);
 
 #if (C_DYNAMIC_X86)
@@ -5196,7 +5231,14 @@ Bitu DEBUG_Loop(void) {
 	}
 #endif
 
-        if ((oldCS!=SegValue(cs)) || (oldEIP!=reg_eip)) {
+        /* MCP_HEADLESS_STOP: the interrupt check exists so the console can
+           follow an interrupt handler -- and its action is to leave the
+           debugger and let the CPU run, which in a headless session would look
+           like the session quietly continuing. Headless stays stopped. (With the
+           `PIC_runIRQs` guard above, nothing can have moved CS:IP here either;
+           the check is kept because this is the branch that would leave the
+           debugger, and the guard costs nothing.) */
+        if (!debug_headless_stop && ((oldCS!=SegValue(cs)) || (oldEIP!=reg_eip))) {
             CBreakpoint::AddBreakpoint(oldCS,oldEIP,true);
             CBreakpoint::ActivateBreakpointsExceptAt(SegPhys(cs)+reg_eip);
             debugging=false;
@@ -5222,6 +5264,7 @@ Bitu DEBUG_Loop(void) {
             int ocr;
 
             check_rescroll = false;
+            if (debug_headless_stop) return 0;
             ocs = codeViewData.useCS;
             oip = codeViewData.useEIP;
             ocr = codeViewData.cursorPos;
@@ -5241,6 +5284,8 @@ Bitu DEBUG_Loop(void) {
             DEBUG_RefreshPage(0);
         }
 
+    /* MCP_HEADLESS_STOP: there is no debugger keyboard to read. */
+    if (debug_headless_stop) return 0;
     	return DEBUG_CheckKeys();
     }
 }
@@ -5336,6 +5381,22 @@ void DEBUG_Enable_Handler(bool pressed) {
     debugging=true;
     debug_running=false;
     check_rescroll=true;
+
+    if (debug_headless_stop) {
+        /* MCP_HEADLESS_STOP: the same stop, minus everything that needs a
+           console. `debugging = true` is what makes the CPU stopped and what
+           the agent's single-step is gated on, and DEBUG_Loop is the loop the
+           agent's command queue is pumped from -- so both are kept, and the
+           agent is told it has arrived, exactly as the console path does. */
+        DOSBOX_SetLoop(&DEBUG_Loop);
+        GFX_SetTitle(-1,-1,-1,false);
+        runnormal = false;
+#if defined(C_DOSBOX_AGENT)
+        dosbox_agent::AGENT_NotifyDebuggerStopped(SegValue(cs), reg_eip);
+#endif
+        return;
+    }
+
     DrawRegistersUpdateOld();
     DEBUG_SetupConsole();
     DEBUG_FlushInput();
@@ -6143,7 +6204,15 @@ void DEBUG_Init() {
 
 	Section_prop *section = static_cast<Section_prop *>(control->GetSection("dosbox"));
 	const int mcp_server_port = section != NULL ? section->Get_int("mcp_server") : 0;
-	if (mcp_server_port > 0) {
+	std::fprintf(stderr, "[mcp-trace] DEBUG_Init reading mcp_stdio property\n");
+	const bool mcp_stdio = section != NULL && section->Get_bool("mcp_stdio");
+	std::fprintf(stderr, "[mcp-trace] DEBUG_Init mcp_stdio=%d mcp_server_port=%d\n", (int)mcp_stdio, mcp_server_port);
+	if (mcp_stdio) {
+		/* Speak the control protocol over stdin/stdout: the parent process drives
+		   the debugger with REQ lines and reads the replies (see the harness). */
+		ControlServer_StartStdio();
+		TIMER_AddTickHandler(ControlServer_Poll);
+	} else if (mcp_server_port > 0) {
 		ControlServer_Start(static_cast<uint16_t>(mcp_server_port));
 		TIMER_AddTickHandler(ControlServer_Poll);
 	}

@@ -265,6 +265,48 @@ TEST(AgentSession, BlocksStateOperationsWhileRunningAndWaitsForPause)
             "{\"jsonrpc\":\"2.0\",\"id\":\"wait-pause\",\"method\":\"execution.wait\",\"params\":{\"session_id\":\"ses-1\",\"operation_id\":\"op-2\",\"timeout_ms\":1}}").find("\"kind\":\"pause\""));
 }
 
+TEST(AgentSession, ReportsOnlyTheTargetPspAsAProgramExit)
+{
+    dosbox_agent::AgentServer server;
+    std::string error;
+    ASSERT_TRUE(server.StartForTest(MakeTestConfig(), &error)) << error;
+    StartFixtureSession(&server);
+
+    const std::string continued = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"continue-exit\",\"method\":\"execution.continue\",\"params\":{\"session_id\":\"ses-1\"}}");
+    EXPECT_NE(std::string::npos, continued.find("\"operation_id\":\"op-1\""));
+
+    dosbox_agent::AGENT_NotifyProgramExited(0x2000, 7, false);
+    EXPECT_NE(std::string::npos, server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"wrong-psp\",\"method\":\"session.status\",\"params\":{\"session_id\":\"ses-1\"}}").find("\"state\":\"running\""));
+
+    dosbox_agent::AGENT_NotifyProgramExited(0x1000, 42, false);
+    const std::string exited = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"wait-exit\",\"method\":\"execution.wait\",\"params\":{\"session_id\":\"ses-1\",\"operation_id\":\"op-1\",\"timeout_ms\":1}}");
+    EXPECT_NE(std::string::npos, exited.find("\"state\":\"exited\""));
+    EXPECT_NE(std::string::npos, exited.find("\"kind\":\"program_exit\""));
+    EXPECT_NE(std::string::npos, exited.find("\"psp\":4096"));
+    EXPECT_NE(std::string::npos, exited.find("\"exit_code\":42"));
+    EXPECT_NE(std::string::npos, exited.find("\"tsr\":false"));
+}
+
+TEST(AgentSession, LabelsControllerTerminationAsSessionStop)
+{
+    dosbox_agent::AgentServer server;
+    std::string error;
+    ASSERT_TRUE(server.StartForTest(MakeTestConfig(), &error)) << error;
+    StartFixtureSession(&server);
+
+    const std::string stopped = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"stop\",\"method\":\"session.stop\",\"params\":{\"session_id\":\"ses-1\"}}");
+    EXPECT_NE(std::string::npos, stopped.find("\"operation_id\":\"op-1\""));
+    const std::string waited = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"wait-stop\",\"method\":\"execution.wait\",\"params\":{\"session_id\":\"ses-1\",\"operation_id\":\"op-1\",\"timeout_ms\":1000}}");
+    EXPECT_NE(std::string::npos, waited.find("\"state\":\"exited\""));
+    EXPECT_NE(std::string::npos, waited.find("\"kind\":\"session_stop\""));
+    EXPECT_EQ(std::string::npos, waited.find("\"kind\":\"program_exit\""));
+}
+
 TEST(AgentSession, ReusesCompletedRequestResultsAndRejectsConflicts)
 {
     dosbox_agent::AgentServer server;

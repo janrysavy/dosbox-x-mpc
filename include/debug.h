@@ -29,6 +29,14 @@ void DEBUG_CheckExecuteBreakpoint(uint16_t seg, uint32_t off);
 bool DEBUG_ExitLoop(void);
 void DEBUG_RefreshPage(char scroll);
 Bitu DEBUG_EnableDebugger(void);
+/* MCP_HEADLESS_STOP: stop the CPU for a controller that has no debugger
+   console -- the agent's JSON-RPC server (`--agent-config`). See
+   re/harness/patches/apply-dosbox-x-headless-stop.py for why this exists.
+   The flag itself is declared because the code that reads it -- DEBUG_Loop, the
+   RUN command, the target-termination path -- lives above its definition in
+   debug.cpp, in the order upstream wrote them. */
+void DEBUG_SetHeadlessDebugger(bool headless);
+extern bool debug_headless_stop;
 
 #if C_DEBUG
 bool DEBUG_AgentStep(bool over, bool* continued);

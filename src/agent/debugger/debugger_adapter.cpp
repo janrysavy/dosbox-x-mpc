@@ -225,6 +225,15 @@ bool DebuggerAdapter::IsReadyForTargetStart() const
 #endif
 }
 
+std::uint16_t DebuggerAdapter::CurrentPsp() const
+{
+#if C_DEBUG
+    return dos.psp();
+#else
+    return 0;
+#endif
+}
+
 std::uint64_t DebuggerAdapter::EntryBreakpointSequence() const
 {
 #if C_DEBUG

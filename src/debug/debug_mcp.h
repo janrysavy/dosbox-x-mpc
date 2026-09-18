@@ -18,7 +18,9 @@
 // If the server is unavailable or the connection is lost,
 // reconnection is attempted automatically.
 //
-void ControlServer_Start(uint16_t port);
+void ControlServer_Start(const uint16_t port);
+/* Same channel, spoken over stdin/stdout instead of a TCP socket. */
+void ControlServer_StartStdio();
 
 //
 // Stop background thread and close the connection.
