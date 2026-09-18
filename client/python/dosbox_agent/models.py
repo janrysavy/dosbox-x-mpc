@@ -161,6 +161,46 @@ class MemoryWrite:
 
 
 @dataclass(frozen=True)
+class SnapshotBlock:
+    data: bytes
+    sha256: str
+
+
+@dataclass(frozen=True)
+class VideoFrame:
+    block: SnapshotBlock
+    kind: str
+    width: int
+    height: int
+    bpp: int
+    pitch: int
+    double_width: bool
+    double_height: bool
+
+
+@dataclass(frozen=True)
+class VideoSnapshot:
+    state_revision: int
+    captured_ticks: int
+    video_mode: int
+    text: SnapshotBlock
+    text_columns: int
+    glyph_height: int
+    text_start_offset: int
+    fonts: SnapshotBlock
+    font_page_count: int
+    font_glyph_count: int
+    font_glyph_stride: int
+    dac: SnapshotBlock
+    dac_bits: int
+    dac_pel_mask: int
+    renderer_palette: SnapshotBlock
+    frame: VideoFrame
+    geometry: Mapping[str, Any]
+    crtc: SnapshotBlock
+
+
+@dataclass(frozen=True)
 class Breakpoint:
     id: str
     kind: str

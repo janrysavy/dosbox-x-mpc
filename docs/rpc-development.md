@@ -49,6 +49,13 @@ v1 的部署、构建和验收范围仅限 Windows。
 | Debugger 命令 | `README.debugger`、`src/debug/debug.cpp` | 现有 `RUN`、`SR`、`SM`、`BP`、`BPLIST`、`BPDEL`、`MEMDUMP*`、`LOG*` 等命令可作兼容和诊断参考。 |
 | 单元测试入口 | `tests/tests.h`、`tests/readme.txt` | Debug build 可通过 `dosbox-x -tests` 运行 gTest。 |
 
+On Windows, run that suite through `python tests\agent\run_gtests.py`. The
+launcher supplies the source-root working directory required by fixtures, puts
+`-noconsole` after `-tests`, disables `sdl waitonerror`, closes stdin, captures a
+fresh in-repository log, and enforces a timeout. Running `dosbox-x -tests`
+directly opens a Win32 console and waits for Enter when any test fails, which is
+not an automation-safe test result.
+
 构建前置条件：
 
 - `C_DEBUG=1` 是 v1 的硬性条件；未启用时 server 必须拒绝启动并返回 `DEBUGGER_UNAVAILABLE`。
@@ -220,6 +227,12 @@ JSON number 不能无损表达所有未来 guest address，v1 所有 guest 寄�
 - 内存 bytes 一律使用 RFC 4648 base64；返回 `byte_count`、`data_base64` 和 SHA-256。
 - 单个 `memory.read` 最大值为配置的 `max_memory_read_bytes`；超限返回 `REQUEST_TOO_LARGE`，不截断。
 - `debug.output.read` 和 `trace.read` 使用显式 `cursor`、`limit` 和 `next_cursor` 分页。cursor 过期返回 `CURSOR_EXPIRED`，不从头补发。
+- `video.snapshot` captures text VRAM, both font pages, DAC state, renderer palette,
+  CRTC state and the renderer source frame in one emulation-thread command. It
+  returns component sizes and hashes plus a `snapshot_id`; `video.snapshot.read`
+  transfers immutable components in chunks no larger than
+  `max_memory_read_bytes`. A retry with the same request ID must return the same
+  snapshot ID and bytes.
 
 ### 7.3 统一响应和错误
 

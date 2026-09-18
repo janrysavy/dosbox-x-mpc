@@ -49,6 +49,7 @@ static const int kErrorCommandRejected = -32016;
 static const int kErrorCursorExpired = -32017;
 static const std::size_t kOutputRingCapacity = 1024;
 static const std::size_t kCompletedResponseCacheByteLimit = 8u * 1024u * 1024u;
+static const std::size_t kVideoSnapshotCacheByteLimit = 16u * 1024u * 1024u;
 
 static JsonValue Object()
 {
@@ -448,6 +449,8 @@ static bool IsKnownMethod(const std::string& method)
            method == "execution.step" ||
            method == "execution.wait" ||
            method == "state.get_registers" ||
+           method == "video.snapshot" ||
+           method == "video.snapshot.read" ||
            method == "memory.read" ||
            method == "memory.write" ||
            method == "breakpoints.create" ||
@@ -484,6 +487,9 @@ public:
         std::string fingerprint;
         std::string response;
         std::size_t bytes = 0;
+        std::string video_snapshot_id;
+        std::shared_ptr<VideoSnapshot> video_snapshot;
+        std::size_t video_snapshot_bytes = 0;
     };
 
     struct DeferredRequest {
@@ -514,6 +520,7 @@ public:
         std::string error;
         MemoryAccessError access_error;
         RegisterSnapshot registers;
+        VideoSnapshot video_snapshot;
         std::vector<std::uint8_t> data;
         NativeBreakpoint breakpoint;
         std::string raw_output;
@@ -564,6 +571,7 @@ public:
         std::uint64_t next_operation = 1;
         std::uint64_t next_breakpoint = 1;
         std::uint64_t next_output_sequence = 1;
+        std::uint64_t next_video_snapshot = 1;
         std::string pending_stop_kind;
         std::string startup_phase;
         std::uint64_t startup_entry_breakpoint_baseline = 0;
@@ -576,8 +584,11 @@ public:
         std::map<std::string, Breakpoint> breakpoints;
         std::deque<OutputRecord> output;
         TraceStore trace;
+        std::string video_snapshot_id;
+        std::shared_ptr<VideoSnapshot> video_snapshot;
         std::deque<CachedResponse> completed_requests;
         std::size_t completed_response_bytes = 0;
+        std::size_t cached_video_snapshot_bytes = 0;
         std::map<std::string, DeferredRequest> deferred_requests;
     };
 
@@ -615,6 +626,7 @@ public:
                                     const std::string& workdir,
                                     std::string* error) const = 0;
     virtual bool GetRegisters(RegisterSnapshot* registers, std::string* error) const = 0;
+    virtual bool CaptureVideoSnapshot(VideoSnapshot* snapshot, std::string* error) const = 0;
     virtual bool Step(StepMode mode, bool* continued, std::string* error) const = 0;
     virtual bool ReadMemory(const MemoryAddress& address,
                             std::size_t length,
@@ -670,6 +682,7 @@ public:
     AGENT_RUNTIME_FORWARD(Pause, bool Pause(std::string* error) const, (error))
     AGENT_RUNTIME_FORWARD(StartTargetAtEntry, bool StartTargetAtEntry(const std::string& command, const std::vector<std::string>& arguments, const std::string& workdir, std::string* error) const, (command, arguments, workdir, error))
     AGENT_RUNTIME_FORWARD(GetRegisters, bool GetRegisters(RegisterSnapshot* registers, std::string* error) const, (registers, error))
+    AGENT_RUNTIME_FORWARD(CaptureVideoSnapshot, bool CaptureVideoSnapshot(VideoSnapshot* snapshot, std::string* error) const, (snapshot, error))
     AGENT_RUNTIME_FORWARD(Step, bool Step(StepMode mode, bool* continued, std::string* error) const, (mode, continued, error))
     AGENT_RUNTIME_FORWARD(ReadMemory, bool ReadMemory(const MemoryAddress& address, std::size_t length, std::vector<std::uint8_t>* data, MemoryAccessError* access_error, std::string* error) const, (address, length, data, access_error, error))
     AGENT_RUNTIME_FORWARD(WriteMemory, bool WriteMemory(const MemoryAddress& address, const std::vector<std::uint8_t>& data, std::vector<std::uint8_t>* after, MemoryAccessError* access_error, std::string* error) const, (address, data, after, access_error, error))
@@ -728,6 +741,32 @@ public:
 #define AGENT_RUNTIME_UNAVAILABLE(method, signature) \
     signature override { SetUnavailable(error); return false; }
     AGENT_RUNTIME_UNAVAILABLE(GetRegisters, bool GetRegisters(RegisterSnapshot*, std::string* error) const)
+    bool CaptureVideoSnapshot(VideoSnapshot* snapshot, std::string* error) const override
+    {
+        if (snapshot == NULL) {
+            SetUnavailable(error);
+            return false;
+        }
+        snapshot->video_mode = 3;
+        snapshot->ticks = 42;
+        snapshot->text_columns = 80;
+        snapshot->glyph_height = 16;
+        snapshot->font_stride = 32;
+        snapshot->char9dot = true;
+        snapshot->dac_bits = 6;
+        snapshot->dac_pel_mask = 0xff;
+        snapshot->frame_width = 2;
+        snapshot->frame_height = 1;
+        snapshot->frame_bpp = 8;
+        snapshot->frame_pitch = 2;
+        snapshot->text.assign({0x41, 0x1f});
+        snapshot->font.assign({0xaa});
+        snapshot->dac_palette.assign({0x00, 0x01, 0x02});
+        snapshot->renderer_palette.assign({0x00, 0x11, 0x22, 0xff});
+        snapshot->frame.assign({0x01, 0x02});
+        snapshot->crtc.assign({0x5f, 0x4f});
+        return true;
+    }
     AGENT_RUNTIME_UNAVAILABLE(Step, bool Step(StepMode, bool*, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(ReadMemory, bool ReadMemory(const MemoryAddress&, std::size_t, std::vector<std::uint8_t>*, MemoryAccessError*, std::string* error) const)
     AGENT_RUNTIME_UNAVAILABLE(WriteMemory, bool WriteMemory(const MemoryAddress&, const std::vector<std::uint8_t>&, std::vector<std::uint8_t>*, MemoryAccessError*, std::string* error) const)
@@ -1042,6 +1081,76 @@ static JsonValue RegistersResult(const RegisterSnapshot& registers,
     return result;
 }
 
+static JsonValue BinarySnapshotBlockMetadata(const std::vector<std::uint8_t>& data)
+{
+    JsonValue block = Object();
+    Add(&block, "byte_count", Number(data.size()));
+    Add(&block, "sha256", String(Sha256Hex(data)));
+    return block;
+}
+
+static JsonValue VideoSnapshotResult(const VideoSnapshot& snapshot,
+                                     const std::string& snapshot_id,
+                                     const AgentServer::Impl::Session& session)
+{
+    JsonValue result = SessionResult(session);
+    Add(&result, "snapshot_id", String(snapshot_id));
+    Add(&result, "captured_ticks", Number(snapshot.ticks));
+    Add(&result, "video_mode", Number(snapshot.video_mode));
+
+    JsonValue text = BinarySnapshotBlockMetadata(snapshot.text);
+    Add(&text, "columns", Number(snapshot.text_columns));
+    Add(&text, "glyph_height", Number(snapshot.glyph_height));
+    Add(&text, "start_offset", Number(snapshot.text_offset));
+    Add(&result, "text", text);
+
+    JsonValue fonts = BinarySnapshotBlockMetadata(snapshot.font);
+    Add(&fonts, "page_count", Number(2));
+    Add(&fonts, "glyph_count", Number(256));
+    Add(&fonts, "glyph_stride", Number(snapshot.font_stride));
+    Add(&result, "fonts", fonts);
+
+    JsonValue dac = BinarySnapshotBlockMetadata(snapshot.dac_palette);
+    Add(&dac, "bits", Number(snapshot.dac_bits));
+    Add(&dac, "pel_mask", Number(snapshot.dac_pel_mask));
+    Add(&result, "dac", dac);
+    Add(&result, "renderer_palette", BinarySnapshotBlockMetadata(snapshot.renderer_palette));
+
+    JsonValue frame = BinarySnapshotBlockMetadata(snapshot.frame);
+    Add(&frame, "kind", String("renderer_source_cache"));
+    Add(&frame, "width", Number(snapshot.frame_width));
+    Add(&frame, "height", Number(snapshot.frame_height));
+    Add(&frame, "bpp", Number(snapshot.frame_bpp));
+    Add(&frame, "pitch", Number(snapshot.frame_pitch));
+    Add(&frame, "double_width", JsonValue::Bool(snapshot.frame_dblw));
+    Add(&frame, "double_height", JsonValue::Bool(snapshot.frame_dblh));
+    Add(&result, "frame", frame);
+
+    JsonValue geometry = Object();
+    Add(&geometry, "char9dot", JsonValue::Bool(snapshot.char9dot));
+    Add(&geometry, "blinking", Number(snapshot.blinking));
+    Add(&geometry, "blink_phase", JsonValue::Bool(snapshot.blink_phase));
+    Add(&geometry, "attr_mode_control", Number(snapshot.attr_mode_control));
+    Add(&geometry, "underline_location", Number(snapshot.underline_location));
+    Add(&geometry, "panning", Number(snapshot.panning));
+    Add(&geometry, "draw_address", Number(snapshot.draw_address));
+    Add(&geometry, "crtc", BinarySnapshotBlockMetadata(snapshot.crtc));
+    Add(&result, "geometry", geometry);
+    return result;
+}
+
+static const std::vector<std::uint8_t>* VideoSnapshotComponent(const VideoSnapshot& snapshot,
+                                                               const std::string& component)
+{
+    if (component == "text") return &snapshot.text;
+    if (component == "fonts") return &snapshot.font;
+    if (component == "dac") return &snapshot.dac_palette;
+    if (component == "renderer_palette") return &snapshot.renderer_palette;
+    if (component == "frame") return &snapshot.frame;
+    if (component == "crtc") return &snapshot.crtc;
+    return NULL;
+}
+
 static std::string AddressError(const JsonValue& id,
                                 const std::string& message,
                                 const MemoryAddress& address,
@@ -1192,15 +1301,42 @@ static void CacheResponse(AgentServer::Impl::Session* session,
     entry.fingerprint = request.fingerprint;
     entry.response = response;
     entry.bytes = entry.id_key.size() + entry.fingerprint.size() + entry.response.size();
+    if (request.method == "video.snapshot" && session->video_snapshot) {
+        entry.video_snapshot_id = session->video_snapshot_id;
+        entry.video_snapshot = session->video_snapshot;
+        entry.video_snapshot_bytes = entry.video_snapshot->text.size() +
+                entry.video_snapshot->font.size() + entry.video_snapshot->dac_palette.size() +
+                entry.video_snapshot->renderer_palette.size() + entry.video_snapshot->frame.size() +
+                entry.video_snapshot->crtc.size();
+    }
     if (entry.bytes > kCompletedResponseCacheByteLimit)
         return;
     session->completed_requests.push_back(entry);
     session->completed_response_bytes += entry.bytes;
+    session->cached_video_snapshot_bytes += entry.video_snapshot_bytes;
     while (session->completed_requests.size() > 1024 ||
-           session->completed_response_bytes > kCompletedResponseCacheByteLimit) {
+           session->completed_response_bytes > kCompletedResponseCacheByteLimit ||
+           (session->completed_requests.size() > 1 &&
+            session->cached_video_snapshot_bytes > kVideoSnapshotCacheByteLimit)) {
         session->completed_response_bytes -= session->completed_requests.front().bytes;
+        session->cached_video_snapshot_bytes -=
+                session->completed_requests.front().video_snapshot_bytes;
         session->completed_requests.pop_front();
     }
+}
+
+static std::shared_ptr<const VideoSnapshot> FindVideoSnapshot(
+        const AgentServer::Impl::Session& session, const std::string& snapshot_id)
+{
+    if (!snapshot_id.empty() && snapshot_id == session.video_snapshot_id && session.video_snapshot)
+        return session.video_snapshot;
+    for (std::deque<AgentServer::Impl::CachedResponse>::const_reverse_iterator it =
+                 session.completed_requests.rbegin();
+         it != session.completed_requests.rend(); ++it) {
+        if (snapshot_id == it->video_snapshot_id && it->video_snapshot)
+            return it->video_snapshot;
+    }
+    return std::shared_ptr<const VideoSnapshot>();
 }
 
 static std::string Capabilities(const AgentConfig& config)
@@ -1219,6 +1355,11 @@ static std::string Capabilities(const AgentConfig& config)
     Add(&trace, "cpu", JsonValue::Bool(false));
 #endif
     Add(&result, "trace", trace);
+    JsonValue video = Object();
+    Add(&video, "snapshot", JsonValue::Bool(true));
+    Add(&video, "atomic_components", JsonValue::Bool(true));
+    Add(&video, "paged_read", JsonValue::Bool(true));
+    Add(&result, "video", video);
     JsonValue breakpoints = Object();
 #ifdef C_HEAVY_DEBUG
     Add(&breakpoints, "memory_change", JsonValue::Bool(true));
@@ -1828,23 +1969,122 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                 }
             }
         }
+    } else if (parsed.method == "video.snapshot") {
+        if (session->state == Impl::SessionState::Running) {
+            response = SessionError(parsed.id, kErrorTargetRunning,
+                                    "Target must be stopped before capturing video", "TARGET_RUNNING", session);
+        } else if (session->state == Impl::SessionState::Exited) {
+            response = SessionError(parsed.id, kErrorCapabilityUnavailable,
+                                    "Target has exited", "TARGET_EXITED", session);
+        } else {
+            const std::shared_ptr<Impl::AdapterOperation> operation(new Impl::AdapterOperation());
+            const std::string session_id = session->id;
+            if (SubmitEmulationCommandLocked(impl, [impl, operation](const std::uint64_t) {
+                    AgentRuntime& adapter = *impl->runtime;
+                    std::string adapter_error;
+                    VideoSnapshot snapshot;
+                    const bool success = adapter.CaptureVideoSnapshot(&snapshot, &adapter_error);
+                    {
+                        std::lock_guard<std::mutex> operation_lock(operation->mutex);
+                        operation->success = success;
+                        operation->error = adapter_error;
+                        operation->video_snapshot = std::move(snapshot);
+                        operation->done = true;
+                    }
+                    operation->completed.notify_all();
+                }) == 0) {
+                response = Error(parsed.id, kErrorCapabilityUnavailable,
+                                 "Emulation-thread bridge is unavailable", "COMMAND_REJECTED");
+            } else {
+                std::unique_lock<std::mutex> operation_lock(operation->mutex);
+                lock.unlock();
+                const bool completed = operation->completed.wait_for(operation_lock,
+                        std::chrono::milliseconds(impl->config.request_timeout_ms),
+                        [operation]() { return operation->done; });
+                lock.lock();
+                if (!RebindSessionAfterWait(impl, session_id, &session, &response, parsed.id))
+                    return response;
+                if (!completed) {
+                    response = Error(parsed.id, kErrorOperationTimeout,
+                                     "Timed out waiting for video.snapshot on the emulation thread", "OPERATION_TIMEOUT");
+                } else if (!operation->success) {
+                    response = Error(parsed.id, kErrorCapabilityUnavailable,
+                                     operation->error.empty() ? "Unable to capture video snapshot" : operation->error,
+                                     "COMMAND_REJECTED");
+                } else {
+                    session->video_snapshot = std::make_shared<VideoSnapshot>(
+                            std::move(operation->video_snapshot));
+                    session->video_snapshot_id = "shot-" +
+                            std::to_string(session->next_video_snapshot++);
+                    response = AGENT_MakeJsonRpcResult(parsed.id,
+                            VideoSnapshotResult(*session->video_snapshot,
+                                                session->video_snapshot_id, *session));
+                }
+            }
+        }
+    } else if (parsed.method == "video.snapshot.read") {
+        std::string snapshot_id;
+        std::string component;
+        const JsonValue* offset_value = parsed.params.Find("offset");
+        const JsonValue* length_value = parsed.params.Find("length");
+        std::uint32_t offset = 0;
+        std::uint32_t length = 0;
+        if (!GetString(parsed.params, "snapshot_id", &snapshot_id) ||
+            !GetString(parsed.params, "component", &component) ||
+            offset_value == NULL || !GetUnsignedInteger(*offset_value, &offset) ||
+            length_value == NULL || !GetUnsignedInteger(*length_value, &length) || length == 0) {
+            response = InvalidParams(parsed.id,
+                    "video.snapshot.read requires snapshot_id, component, offset and positive length");
+        } else if (length > impl->config.max_memory_read_bytes) {
+            response = Error(parsed.id, kErrorRequestTooLarge,
+                    "video.snapshot.read length exceeds max_memory_read_bytes", "REQUEST_TOO_LARGE");
+        } else {
+            const std::shared_ptr<const VideoSnapshot> snapshot =
+                    FindVideoSnapshot(*session, snapshot_id);
+            if (!snapshot) {
+                response = InvalidParams(parsed.id, "snapshot_id is not retained by this session");
+            } else {
+                const std::vector<std::uint8_t>* data =
+                        VideoSnapshotComponent(*snapshot, component);
+                if (data == NULL) {
+                    response = InvalidParams(parsed.id,
+                            "component must be text, fonts, dac, renderer_palette, frame or crtc");
+                } else if (offset > data->size() || length > data->size() - offset) {
+                    response = InvalidParams(parsed.id, "requested snapshot range is outside the component");
+                } else {
+                    std::vector<std::uint8_t> chunk(data->begin() + offset,
+                                                    data->begin() + offset + length);
+                    JsonValue result = SessionResult(*session);
+                    Add(&result, "snapshot_id", String(snapshot_id));
+                    Add(&result, "component", String(component));
+                    Add(&result, "offset", Number(offset));
+                    Add(&result, "byte_count", Number(chunk.size()));
+                    Add(&result, "data_base64", String(EncodeBase64(chunk)));
+                    Add(&result, "sha256", String(Sha256Hex(chunk)));
+                    Add(&result, "component_byte_count", Number(data->size()));
+                    Add(&result, "component_sha256", String(Sha256Hex(*data)));
+                    Add(&result, "eof", JsonValue::Bool(offset + length == data->size()));
+                    response = AGENT_MakeJsonRpcResult(parsed.id, result);
+                }
+            }
+        }
     } else if (parsed.method == "memory.read") {
         const JsonValue* length_value = parsed.params.Find("length");
         std::uint32_t length = 0;
         MemoryAddress address;
         std::string validation_error;
-        if (!ParseMemoryAddress(parsed.params, "memory.read", &address, &validation_error) ||
+        if (session->state == Impl::SessionState::Running) {
+            response = SessionError(parsed.id, kErrorTargetRunning,
+                                    "Target must be stopped before reading memory", "TARGET_RUNNING", session);
+        } else if (session->state == Impl::SessionState::Exited) {
+            response = SessionError(parsed.id, kErrorCapabilityUnavailable, "Target has exited", "TARGET_EXITED", session);
+        } else if (!ParseMemoryAddress(parsed.params, "memory.read", &address, &validation_error) ||
             length_value == NULL || !GetUnsignedInteger(*length_value, &length) || length == 0) {
             response = InvalidParams(parsed.id, validation_error.empty() ?
                                      "memory.read requires a positive integer length" : validation_error);
         } else if (length > impl->config.max_memory_read_bytes) {
             response = Error(parsed.id, kErrorRequestTooLarge,
                              "memory.read length exceeds max_memory_read_bytes", "REQUEST_TOO_LARGE");
-        } else if (session->state == Impl::SessionState::Running) {
-            response = SessionError(parsed.id, kErrorTargetRunning,
-                                    "Target must be stopped before reading memory", "TARGET_RUNNING", session);
-        } else if (session->state == Impl::SessionState::Exited) {
-            response = SessionError(parsed.id, kErrorCapabilityUnavailable, "Target has exited", "TARGET_EXITED", session);
         } else {
             const std::shared_ptr<Impl::AdapterOperation> operation(new Impl::AdapterOperation());
             const std::string session_id = session->id;
@@ -2506,7 +2746,8 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                 }
             }
         }
-    } else if (parsed.method == "state.get_registers" || parsed.method == "memory.read" ||
+    } else if (parsed.method == "state.get_registers" || parsed.method == "video.snapshot" ||
+               parsed.method == "memory.read" ||
                parsed.method == "breakpoints.create" || parsed.method == "breakpoints.list" || parsed.method == "breakpoints.delete" ||
                parsed.method == "execution.step") {
         if (session->state == Impl::SessionState::Running) {

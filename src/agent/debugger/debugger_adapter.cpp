@@ -9,7 +9,10 @@
 #include "dos_inc.h"
 #include "mem.h"
 #include "paging.h"
+#include "pic.h"
+#include "render.h"
 #include "shell.h"
+#include "vga.h"
 
 extern bool ParseCommand(char* str);
 extern char appname[];
@@ -17,8 +20,11 @@ extern char appargs[];
 extern bool dos_program_running;
 #endif
 
+#include <algorithm>
 #include <cctype>
+#include <cstring>
 #include <limits>
+#include <utility>
 
 namespace dosbox_agent {
 
@@ -389,6 +395,117 @@ bool DebuggerAdapter::GetRegisters(RegisterSnapshot* registers, std::string* err
 #else
     return false;
 #endif
+}
+
+bool DebuggerAdapter::CaptureVideoSnapshot(VideoSnapshot* snapshot, std::string* error) const
+{
+    if (!RequireEmulationThread(error))
+        return false;
+    if (snapshot == NULL) {
+        if (error != NULL)
+            *error = "Video snapshot output is required";
+        return false;
+    }
+
+    VideoSnapshot captured;
+
+    MemoryAddress text_address;
+    text_address.space = MemorySpace::Linear;
+    text_address.offset = 0xb8000;
+    MemoryAccessError access_error;
+    if (!ReadMemory(text_address, 32768, &captured.text, &access_error, error))
+        return false;
+
+    MemoryAddress mode_address;
+    mode_address.space = MemorySpace::Linear;
+    mode_address.offset = 0x449;
+    std::vector<std::uint8_t> mode;
+    if (!ReadMemory(mode_address, 1, &mode, &access_error, error))
+        return false;
+    captured.video_mode = mode[0];
+
+    captured.font.assign(16384, 0);
+    const std::uintptr_t linear_begin = reinterpret_cast<std::uintptr_t>(vga.mem.linear);
+    const std::uintptr_t linear_end = linear_begin + static_cast<std::uintptr_t>(vga.mem.memsize);
+    for (int page = 0; page < 2; ++page) {
+        const std::uint8_t* source = vga.draw.font_tables[page];
+        if (source == NULL)
+            source = &vga.draw.font[page * 8192];
+        const std::uintptr_t source_address = reinterpret_cast<std::uintptr_t>(source);
+        const bool planar = source_address >= linear_begin && source_address < linear_end;
+        for (std::size_t index = 0; index < 8192; ++index) {
+            if (planar) {
+                const std::uintptr_t source_offset = source_address - linear_begin + index * 4u;
+                if (source_offset < static_cast<std::uintptr_t>(vga.mem.memsize))
+                    captured.font[static_cast<std::size_t>(page) * 8192 + index] =
+                            vga.mem.linear[source_offset];
+            } else {
+                captured.font[static_cast<std::size_t>(page) * 8192 + index] = source[index];
+            }
+        }
+    }
+
+    captured.dac_palette.resize(768);
+    for (std::size_t index = 0; index < 256; ++index) {
+        captured.dac_palette[index * 3 + 0] = vga.dac.rgb[index].red;
+        captured.dac_palette[index * 3 + 1] = vga.dac.rgb[index].green;
+        captured.dac_palette[index * 3 + 2] = vga.dac.rgb[index].blue;
+    }
+    captured.dac_bits = vga.dac.bits;
+    captured.dac_pel_mask = vga.dac.pel_mask;
+
+    captured.renderer_palette.resize(sizeof(render.pal.rgb));
+    std::memcpy(captured.renderer_palette.data(), &render.pal.rgb,
+                captured.renderer_palette.size());
+
+    if (scalerSourceCacheBuffer != NULL && render.src.width > 0 && render.src.height > 0 &&
+        render.scale.cachePitch > 0) {
+        const std::size_t frame_bytes = static_cast<std::size_t>(render.scale.cachePitch) *
+                                        static_cast<std::size_t>(render.src.height);
+        if (frame_bytes <= scalerSourceCacheBufferSize) {
+            captured.frame.assign(scalerSourceCacheBuffer,
+                                  scalerSourceCacheBuffer + frame_bytes);
+            captured.frame_width = static_cast<std::uint32_t>(render.src.width);
+            captured.frame_height = static_cast<std::uint32_t>(render.src.height);
+            captured.frame_bpp = static_cast<std::uint32_t>(render.src.bpp);
+            captured.frame_pitch = static_cast<std::uint32_t>(render.scale.cachePitch);
+            captured.frame_dblw = render.src.dblw;
+            captured.frame_dblh = render.src.dblh;
+        }
+    }
+
+    const std::uint8_t crtc_values[] = {
+        vga.crtc.horizontal_total, vga.crtc.horizontal_display_end,
+        vga.crtc.start_horizontal_blanking, vga.crtc.end_horizontal_blanking,
+        vga.crtc.start_horizontal_retrace, vga.crtc.end_horizontal_retrace,
+        vga.crtc.vertical_total, vga.crtc.overflow, vga.crtc.preset_row_scan,
+        vga.crtc.maximum_scan_line, vga.crtc.cursor_start, vga.crtc.cursor_end,
+        vga.crtc.start_address_high, vga.crtc.start_address_low,
+        vga.crtc.cursor_location_high, vga.crtc.cursor_location_low,
+        vga.crtc.vertical_retrace_start, vga.crtc.vertical_retrace_end,
+        vga.crtc.vertical_display_end, vga.crtc.offset, vga.crtc.underline_location,
+        vga.crtc.start_vertical_blanking, vga.crtc.end_vertical_blanking,
+        vga.crtc.mode_control, vga.crtc.line_compare,
+    };
+    captured.crtc.assign(32, 0);
+    std::copy(crtc_values, crtc_values + sizeof(crtc_values), captured.crtc.begin());
+
+    captured.ticks = static_cast<std::uint64_t>(PIC_Ticks);
+    captured.text_columns = static_cast<std::uint32_t>(vga.draw.blocks);
+    captured.glyph_height = static_cast<std::uint32_t>((vga.crtc.maximum_scan_line & 0x1fu) + 1u);
+    captured.text_offset = static_cast<std::uint32_t>(
+            (static_cast<std::uint16_t>(vga.crtc.start_address_high) << 8u |
+             vga.crtc.start_address_low) * 2u);
+    captured.char9dot = vga.draw.char9dot;
+    captured.blinking = static_cast<std::uint32_t>(vga.draw.blinking);
+    captured.blink_phase = vga.draw.blink;
+    captured.attr_mode_control = vga.attr.mode_control;
+    captured.underline_location = vga.crtc.underline_location & 0x1fu;
+    captured.panning = static_cast<std::uint32_t>(vga.draw.panning);
+    captured.draw_address = static_cast<std::uint32_t>(vga.draw.address);
+
+    *snapshot = std::move(captured);
+    return true;
 }
 
 bool DebuggerAdapter::Step(const StepMode mode, bool* continued, std::string* error) const

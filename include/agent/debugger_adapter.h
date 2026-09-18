@@ -56,6 +56,36 @@ struct TraceSample {
     std::string analysis;
 };
 
+struct VideoSnapshot {
+    std::uint8_t video_mode = 0;
+    std::uint64_t ticks = 0;
+    std::uint32_t text_columns = 0;
+    std::uint32_t glyph_height = 0;
+    std::uint32_t text_offset = 0;
+    std::uint32_t font_stride = 32;
+    bool char9dot = false;
+    std::uint32_t blinking = 0;
+    bool blink_phase = false;
+    std::uint8_t attr_mode_control = 0;
+    std::uint8_t underline_location = 0;
+    std::uint32_t panning = 0;
+    std::uint32_t draw_address = 0;
+    std::uint32_t frame_width = 0;
+    std::uint32_t frame_height = 0;
+    std::uint32_t frame_bpp = 0;
+    std::uint32_t frame_pitch = 0;
+    bool frame_dblw = false;
+    bool frame_dblh = false;
+    std::uint8_t dac_bits = 0;
+    std::uint8_t dac_pel_mask = 0;
+    std::vector<std::uint8_t> text;
+    std::vector<std::uint8_t> font;
+    std::vector<std::uint8_t> dac_palette;
+    std::vector<std::uint8_t> renderer_palette;
+    std::vector<std::uint8_t> frame;
+    std::vector<std::uint8_t> crtc;
+};
+
 enum class StepMode {
     Into,
     Over
@@ -88,6 +118,7 @@ public:
                             const std::string& workdir,
                             std::string* error) const;
     bool GetRegisters(RegisterSnapshot* registers, std::string* error) const;
+    bool CaptureVideoSnapshot(VideoSnapshot* snapshot, std::string* error) const;
     bool Step(StepMode mode, bool* continued, std::string* error) const;
     bool ReadMemory(const MemoryAddress& address,
                     std::size_t length,

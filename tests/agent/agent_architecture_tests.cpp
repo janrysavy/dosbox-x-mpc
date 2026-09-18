@@ -177,6 +177,46 @@ TEST(AgentProtocol, ReportsBuildCapabilitiesAndLimits)
     EXPECT_NE(std::string::npos, response.find("\"linear\""));
     EXPECT_NE(std::string::npos, response.find("\"physical\""));
     EXPECT_NE(std::string::npos, response.find("\"max_memory_read_bytes\":64"));
+    EXPECT_NE(std::string::npos, response.find("\"snapshot\":true"));
+}
+
+TEST(AgentVideo, ReturnsOneAtomicTypedSnapshotAndRejectsRunningTargets)
+{
+    dosbox_agent::AgentServer server;
+    std::string error;
+    ASSERT_TRUE(server.StartForTest(MakeTestConfig(), &error)) << error;
+    StartFixtureSession(&server);
+
+    const std::string snapshot = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"video\",\"method\":\"video.snapshot\",\"params\":{\"session_id\":\"ses-1\"}}");
+    EXPECT_NE(std::string::npos, snapshot.find("\"captured_ticks\":42"));
+    EXPECT_NE(std::string::npos, snapshot.find("\"video_mode\":3"));
+    EXPECT_NE(std::string::npos, snapshot.find("\"snapshot_id\":\"shot-1\""));
+    EXPECT_EQ(std::string::npos, snapshot.find("data_base64"));
+    EXPECT_NE(std::string::npos, snapshot.find("\"kind\":\"renderer_source_cache\""));
+    EXPECT_NE(std::string::npos, snapshot.find("\"columns\":80"));
+
+    const std::string text = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"video-text\",\"method\":\"video.snapshot.read\","
+            "\"params\":{\"session_id\":\"ses-1\",\"snapshot_id\":\"shot-1\",\"component\":\"text\",\"offset\":0,\"length\":2}}");
+    EXPECT_NE(std::string::npos, text.find("\"data_base64\":\"QR8=\""));
+    EXPECT_NE(std::string::npos, text.find("\"eof\":true"));
+
+    const std::string second_snapshot = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"video-2\",\"method\":\"video.snapshot\",\"params\":{\"session_id\":\"ses-1\"}}");
+    EXPECT_NE(std::string::npos, second_snapshot.find("\"snapshot_id\":\"shot-2\""));
+    const std::string retried_snapshot = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"video\",\"method\":\"video.snapshot\",\"params\":{\"session_id\":\"ses-1\"}}");
+    EXPECT_EQ(snapshot, retried_snapshot);
+    const std::string retained_text = server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"video-text-retained\",\"method\":\"video.snapshot.read\","
+            "\"params\":{\"session_id\":\"ses-1\",\"snapshot_id\":\"shot-1\",\"component\":\"text\",\"offset\":0,\"length\":2}}");
+    EXPECT_NE(std::string::npos, retained_text.find("\"data_base64\":\"QR8=\""));
+
+    EXPECT_NE(std::string::npos, server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"continue-video\",\"method\":\"execution.continue\",\"params\":{\"session_id\":\"ses-1\"}}").find("\"state\":\"running\""));
+    EXPECT_NE(std::string::npos, server.HandleJsonRpc(
+            "{\"jsonrpc\":\"2.0\",\"id\":\"video-running\",\"method\":\"video.snapshot\",\"params\":{\"session_id\":\"ses-1\"}}").find("TARGET_RUNNING"));
 }
 
 TEST(AgentLifecycle, StopsAndRestartsTheSameServer)

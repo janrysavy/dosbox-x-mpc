@@ -175,6 +175,33 @@ with AgentClient.from_config(config_path) as agent:
 - `MemoryWrite`：写入前后 SHA-256 和 `byte_count`。
 - `Breakpoint`、`Operation`、`WaitResult`、`OutputPage`、`TracePage`。
 
+### Atomic video snapshots
+
+`AgentClient.capture_video(session.id)` returns a typed `VideoSnapshot` captured by
+one emulation-thread command. The snapshot contains the complete 32 KiB text
+window, both 256-glyph font pages, the DAC and renderer palettes, the renderer's
+source frame, the CRTC registers, and the geometry needed to interpret them.
+Every binary component carries a byte count and SHA-256.
+
+The RPC deliberately separates capture from transfer. `video.snapshot` records
+one immutable moment and returns metadata plus a `snapshot_id`;
+`video.snapshot.read` pages each component without touching live emulator state.
+The Python client performs those reads, verifies every chunk and the complete
+component hash, and exposes only the verified bytes. This keeps a 720x400x32
+frame below `max_message_bytes` without combining data from different moments.
+
+Snapshots are available only while the target is stopped. Captured snapshot IDs
+remain readable while their originating request is retained in the session's
+bounded idempotency cache, so retrying the same request ID still names the same
+bytes even after a later capture.
+
+```python
+snapshot = agent.capture_video(session.id, request_id="menu-frame-1")
+assert len(snapshot.text.data) == 32768
+assert len(snapshot.fonts.data) == 2 * 256 * snapshot.font_glyph_stride
+print(snapshot.frame.width, snapshot.frame.height, snapshot.frame.block.sha256)
+```
+
 ## 6. 标准动态逆向流程
 
 ### 6.1 检查能力

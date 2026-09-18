@@ -4,6 +4,7 @@ import base64
 import binascii
 import ctypes
 from ctypes import wintypes
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -25,8 +26,11 @@ from .models import (
     RegisterSnapshot,
     Session,
     StopReason,
+    SnapshotBlock,
     TraceEvent,
     TracePage,
+    VideoFrame,
+    VideoSnapshot,
     WaitResult,
 )
 
@@ -286,6 +290,76 @@ class AgentClient:
     def get_registers(self, session_id: str, request_id: str | None = None) -> RegisterSnapshot:
         return _registers(self.call("state.get_registers", {"session_id": session_id}, request_id))
 
+    def capture_video(self, session_id: str, request_id: str | None = None) -> VideoSnapshot:
+        result = self.call("video.snapshot", {"session_id": session_id}, request_id)
+        snapshot_id = _string(result, "snapshot_id")
+        text = _object(result, "text")
+        fonts = _object(result, "fonts")
+        dac = _object(result, "dac")
+        renderer_palette = _object(result, "renderer_palette")
+        frame = _object(result, "frame")
+        geometry = _object(result, "geometry")
+        crtc = _object(geometry, "crtc")
+        return VideoSnapshot(
+            state_revision=_integer(result, "state_revision"),
+            captured_ticks=_integer(result, "captured_ticks"),
+            video_mode=_integer(result, "video_mode"),
+            text=self._read_video_snapshot_block(session_id, snapshot_id, "text", text),
+            text_columns=_integer(text, "columns"),
+            glyph_height=_integer(text, "glyph_height"),
+            text_start_offset=_integer(text, "start_offset"),
+            fonts=self._read_video_snapshot_block(session_id, snapshot_id, "fonts", fonts),
+            font_page_count=_integer(fonts, "page_count"),
+            font_glyph_count=_integer(fonts, "glyph_count"),
+            font_glyph_stride=_integer(fonts, "glyph_stride"),
+            dac=self._read_video_snapshot_block(session_id, snapshot_id, "dac", dac),
+            dac_bits=_integer(dac, "bits"),
+            dac_pel_mask=_integer(dac, "pel_mask"),
+            renderer_palette=self._read_video_snapshot_block(
+                session_id, snapshot_id, "renderer_palette", renderer_palette
+            ),
+            frame=VideoFrame(
+                block=self._read_video_snapshot_block(session_id, snapshot_id, "frame", frame),
+                kind=_string(frame, "kind"),
+                width=_integer(frame, "width"),
+                height=_integer(frame, "height"),
+                bpp=_integer(frame, "bpp"),
+                pitch=_integer(frame, "pitch"),
+                double_width=_boolean(frame, "double_width"),
+                double_height=_boolean(frame, "double_height"),
+            ),
+            geometry=dict(geometry),
+            crtc=self._read_video_snapshot_block(session_id, snapshot_id, "crtc", crtc),
+        )
+
+    def _read_video_snapshot_block(self, session_id: str, snapshot_id: str, component: str,
+                                   metadata: Mapping[str, Any]) -> SnapshotBlock:
+        expected_count = _integer(metadata, "byte_count")
+        expected_sha256 = _string(metadata, "sha256")
+        data = bytearray()
+        while len(data) < expected_count:
+            length = min(self.config.max_memory_read_bytes, expected_count - len(data))
+            result = self.call("video.snapshot.read", {
+                "session_id": session_id,
+                "snapshot_id": snapshot_id,
+                "component": component,
+                "offset": len(data),
+                "length": length,
+            })
+            block = _snapshot_block(result, f"video.snapshot.read {component}")
+            if _string(result, "snapshot_id") != snapshot_id or _string(result, "component") != component:
+                raise AgentProtocolError("video.snapshot.read returned a different snapshot component")
+            if _integer(result, "offset") != len(data):
+                raise AgentProtocolError("video.snapshot.read returned a non-contiguous offset")
+            if _integer(result, "component_byte_count") != expected_count or \
+               _string(result, "component_sha256") != expected_sha256:
+                raise AgentProtocolError("video.snapshot.read metadata changed while paging")
+            data.extend(block.data)
+        actual = bytes(data)
+        if hashlib.sha256(actual).hexdigest() != expected_sha256:
+            raise AgentProtocolError(f"video snapshot component {component} failed its SHA-256 check")
+        return SnapshotBlock(data=actual, sha256=expected_sha256)
+
     def read_memory(self, session_id: str, address: MemoryAddress, length: int, request_id: str | None = None) -> MemoryRead:
         if length <= 0:
             raise ValueError("length must be positive")
@@ -520,6 +594,16 @@ def _registers(result: Mapping[str, Any]) -> RegisterSnapshot:
     )
 
 
+def _snapshot_block(result: Mapping[str, Any], name: str) -> SnapshotBlock:
+    try:
+        data = base64.b64decode(_string(result, "data_base64"), validate=True)
+    except (ValueError, binascii.Error) as error:
+        raise AgentProtocolError(f"{name} returned invalid base64") from error
+    if len(data) != _integer(result, "byte_count"):
+        raise AgentProtocolError(f"{name} byte_count does not match data_base64")
+    return SnapshotBlock(data=data, sha256=_string(result, "sha256"))
+
+
 def _validate_sha256(value: str) -> None:
     if len(value) != 64:
         raise ValueError("expected_sha256 must contain exactly 64 hexadecimal characters")
@@ -554,6 +638,13 @@ def _integer(result: Mapping[str, Any], name: str) -> int:
 def _integer_value(value: Any, name: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool):
         raise AgentProtocolError(f"response field {name} must be an integer")
+    return value
+
+
+def _boolean(result: Mapping[str, Any], name: str) -> bool:
+    value = result.get(name)
+    if not isinstance(value, bool):
+        raise AgentProtocolError(f"response field {name} must be a boolean")
     return value
 
 

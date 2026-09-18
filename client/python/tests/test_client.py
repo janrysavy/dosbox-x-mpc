@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -13,6 +14,7 @@ from dosbox_agent import (
     AddressNotMappedError,
     AgentClient,
     AgentConfig,
+    AgentProtocolError,
     BreakpointNotFoundError,
     InvalidBinaryLengthError,
     MemoryAddress,
@@ -131,6 +133,14 @@ class AgentClientTests(unittest.TestCase):
 
     def test_typed_methods_cover_v1_contract(self) -> None:
         address = {"space": "segmented", "segment": "0x0812", "offset": "0x00000106"}
+        video_components = {
+            "text": b"A\x1f", "fonts": b"font", "dac": b"dac",
+            "renderer_palette": b"rgb", "frame": b"frame", "crtc": b"crtc",
+        }
+
+        def video_metadata(component: str) -> dict:
+            data = video_components[component]
+            return {"byte_count": len(data), "sha256": hashlib.sha256(data).hexdigest()}
 
         def handler(request: dict) -> dict:
             method = request["method"]
@@ -151,6 +161,31 @@ class AgentClientTests(unittest.TestCase):
                 return {"result": result}
             if method == "state.get_registers":
                 return {"result": registers_result()}
+            if method == "video.snapshot":
+                text = {**video_metadata("text"), "columns": 80, "glyph_height": 16, "start_offset": 0}
+                fonts = {**video_metadata("fonts"), "page_count": 2, "glyph_count": 256, "glyph_stride": 32}
+                dac = {**video_metadata("dac"), "bits": 6, "pel_mask": 255}
+                frame = {
+                    **video_metadata("frame"), "kind": "renderer_source_cache", "width": 2, "height": 1,
+                    "bpp": 8, "pitch": 2, "double_width": False, "double_height": False,
+                }
+                geometry = {"char9dot": True, "crtc": video_metadata("crtc")}
+                return {"result": {
+                    "session_id": "ses-1", "state_revision": 3, "captured_ticks": 42,
+                    "snapshot_id": "shot-1", "video_mode": 3, "text": text, "fonts": fonts, "dac": dac,
+                    "renderer_palette": video_metadata("renderer_palette"), "frame": frame, "geometry": geometry,
+                }}
+            if method == "video.snapshot.read":
+                params = request["params"]
+                data = video_components[params["component"]]
+                chunk = data[params["offset"]:params["offset"] + params["length"]]
+                return {"result": {
+                    "session_id": "ses-1", "state_revision": 3, "snapshot_id": "shot-1",
+                    "component": params["component"], "offset": params["offset"],
+                    "byte_count": len(chunk), "data_base64": base64.b64encode(chunk).decode("ascii"),
+                    "sha256": hashlib.sha256(chunk).hexdigest(), "component_byte_count": len(data),
+                    "component_sha256": hashlib.sha256(data).hexdigest(), "eof": True,
+                }}
             if method == "memory.read":
                 return {"result": {"session_id": "ses-1", "state_revision": 3, "address": address, "byte_count": 3, "data_base64": "QUJD", "sha256": "a" * 64}}
             if method == "memory.write":
@@ -185,6 +220,11 @@ class AgentClientTests(unittest.TestCase):
         self.assertEqual("stopped", stepped.state)
         self.assertEqual("real", stepped_registers.cpu_mode)
         self.assertEqual("0x00000106", client.get_registers(session.id).instruction_pointer)
+        video = client.capture_video(session.id)
+        self.assertEqual(b"A\x1f", video.text.data)
+        self.assertEqual(80, video.text_columns)
+        self.assertEqual(b"frame", video.frame.block.data)
+        self.assertTrue(video.geometry["char9dot"])
         self.assertEqual(b"ABC", client.read_memory(session.id, MemoryAddress.segmented(0x812, 0x106), 3).data)
         self.assertEqual("c" * 64, client.write_memory(session.id, MemoryAddress.segmented(0x812, 0x106), b"ABC").after_sha256)
         breakpoint = client.create_execution_breakpoint(session.id, 0x812, 0x106)
@@ -198,7 +238,7 @@ class AgentClientTests(unittest.TestCase):
         self.assertEqual(1, client.stop_trace(session.id))
         self.assertEqual("op-1", client.pause(session.id).id)
         self.assertEqual("op-1", client.stop(session.id).id)
-        self.assertEqual(19, len(transport.requests))
+        self.assertEqual(26, len(transport.requests))
         self.assertEqual(str(make_config().dosbox_workdir), transport.requests[1]["params"]["mounts"][0]["host_path"])
 
     def test_status_and_program_exit_preserve_process_lifecycle_metadata(self) -> None:
@@ -226,6 +266,33 @@ class AgentClientTests(unittest.TestCase):
         self.assertEqual(0x1234, session.stop_reason.psp)
         self.assertEqual(7, session.stop_reason.exit_code)
         self.assertIs(False, session.stop_reason.tsr)
+
+    def test_video_snapshot_rejects_a_binary_length_mismatch(self) -> None:
+        def handler(request: dict) -> dict:
+            metadata = {"byte_count": 1, "sha256": hashlib.sha256(b"A").hexdigest()}
+            if request["method"] == "video.snapshot.read":
+                return {"result": {
+                    "session_id": "ses-1", "state_revision": 1, "snapshot_id": "shot-1",
+                    "component": request["params"]["component"], "offset": 0,
+                    "byte_count": 2, "data_base64": "QQ==", "sha256": hashlib.sha256(b"A").hexdigest(),
+                    "component_byte_count": 1, "component_sha256": metadata["sha256"], "eof": True,
+                }}
+            self.assertEqual("video.snapshot", request["method"])
+            return {"result": {
+                "session_id": "ses-1", "state_revision": 1, "snapshot_id": "shot-1",
+                "captured_ticks": 0, "video_mode": 3,
+                "text": {**metadata, "columns": 80, "glyph_height": 16, "start_offset": 0},
+                "fonts": {**metadata, "page_count": 2, "glyph_count": 256, "glyph_stride": 32},
+                "dac": {**metadata, "bits": 6, "pel_mask": 255},
+                "renderer_palette": metadata,
+                "frame": {**metadata, "kind": "renderer_source_cache", "width": 1, "height": 1,
+                          "bpp": 8, "pitch": 1, "double_width": False, "double_height": False},
+                "geometry": {"crtc": metadata},
+            }}
+
+        client = AgentClient(make_config(), FakeTransport(handler))
+        with self.assertRaisesRegex(AgentProtocolError, "byte_count"):
+            client.capture_video("ses-1")
 
     def test_base64_request_error_mapping_and_explicit_request_id_retry(self) -> None:
         write_response = {"session_id": "ses-1", "state_revision": 2, "address": {"space": "segmented", "segment": "0x0812", "offset": "0x00000200"}, "byte_count": 2, "before_sha256": "a" * 64, "after_sha256": "b" * 64}

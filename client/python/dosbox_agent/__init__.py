@@ -33,8 +33,11 @@ from .models import (
     RegisterSnapshot,
     Session,
     StopReason,
+    SnapshotBlock,
     TraceEvent,
     TracePage,
+    VideoFrame,
+    VideoSnapshot,
     WaitResult,
 )
 
@@ -45,6 +48,6 @@ __all__ = [
     "InvalidBinaryLengthError", "MemoryAddress", "MemoryPreconditionFailedError", "MemoryRead", "MemoryWrite",
     "Operation", "OperationTimeoutError", "OutputPage", "OutputRecord", "RegisterSnapshot",
     "RequestIdConflictError", "RequestTooLargeError", "Session", "SessionBusyError", "SessionNotFoundError",
-    "StopReason", "TargetExitedError", "TargetNotStoppedError", "TargetRunningError", "TraceEvent",
-    "TracePage", "WaitResult",
+    "SnapshotBlock", "StopReason", "TargetExitedError", "TargetNotStoppedError", "TargetRunningError", "TraceEvent",
+    "TracePage", "VideoFrame", "VideoSnapshot", "WaitResult",
 ]

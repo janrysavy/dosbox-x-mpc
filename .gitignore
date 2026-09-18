@@ -20,6 +20,7 @@ depcomp
 install-sh
 missing
 config.log
+tests/agent/gtest-results.log
 
 *~
 dosbox-x.app/
