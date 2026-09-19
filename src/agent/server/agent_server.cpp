@@ -747,6 +747,9 @@ public:
         MemoryAccessError access_error;
         RegisterSnapshot registers;
         RegisterWriteResult register_write;
+        bool register_revision_accounted = false;
+        std::uint64_t register_revision_before = 0;
+        std::uint64_t register_revision_after = 0;
         InputState input_state;
         VideoSnapshot video_snapshot;
         DosMemoryMap dos_memory_map;
@@ -3048,7 +3051,8 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                             adapter.CreateInterruptBreakpoint(interrupt, true, condition,
                                                               hit_filter, &native,
                                                               &adapter_error) :
-                            adapter.CreateBreakpoint(kind, address, length, true,
+                            adapter.CreateBreakpoint(kind, address, length,
+                                                     kind != BreakpointKind::MemoryChange,
                                                      condition, hit_filter, &native,
                                                      &access_error, &adapter_error);
                     if (!created) {
@@ -3610,15 +3614,33 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
         } else {
             const std::shared_ptr<Impl::AdapterOperation> operation(new Impl::AdapterOperation());
             const std::string session_id = session->id;
-            if (SubmitEmulationCommandLocked(impl, [impl, operation, expected, values](const std::uint64_t) {
+            if (SubmitEmulationCommandLocked(impl, [impl, operation, session_id, expected, values](const std::uint64_t) {
                     std::string error;
                     RegisterWriteResult result;
                     const bool success = impl->runtime->SetRegistersGuarded(
                             expected, values, &result, &error);
+                    std::uint64_t revision_before = 0;
+                    std::uint64_t revision_after = 0;
+                    bool revision_accounted = false;
+                    if (success) {
+                        // The request thread may time out while this command is
+                        // queued. Account for the mutation on the emulation
+                        // thread itself, so a late successful write cannot leave
+                        // the session revision unchanged.
+                        std::lock_guard<std::mutex> session_lock(impl->mutex);
+                        if (impl->session && impl->session->id == session_id) {
+                            revision_before = impl->session->state_revision;
+                            revision_after = ++impl->session->state_revision;
+                            revision_accounted = true;
+                        }
+                    }
                     std::lock_guard<std::mutex> guard(operation->mutex);
                     operation->success = success;
                     operation->error = error;
                     operation->register_write = result;
+                    operation->register_revision_accounted = revision_accounted;
+                    operation->register_revision_before = revision_before;
+                    operation->register_revision_after = revision_after;
                     operation->done = true;
                     operation->completed.notify_all();
                 }) == 0) {
@@ -3646,12 +3668,15 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
                             operation->error.empty() ? "Register write was rejected" : operation->error,
                             "COMMAND_REJECTED");
                 else {
-                    ++session->state_revision;
+                    if (!operation->register_revision_accounted) {
+                        operation->register_revision_before = session->state_revision;
+                        operation->register_revision_after = ++session->state_revision;
+                    }
                     JsonValue result = SessionResult(*session);
                     JsonValue before = RegisterFields(operation->register_write.before);
-                    Add(&before, "state_revision", Number(session->state_revision - 1));
+                    Add(&before, "state_revision", Number(operation->register_revision_before));
                     JsonValue after = RegisterFields(operation->register_write.after);
-                    Add(&after, "state_revision", Number(session->state_revision));
+                    Add(&after, "state_revision", Number(operation->register_revision_after));
                     Add(&result, "before", before);
                     Add(&result, "after", after);
                     response = AGENT_MakeJsonRpcResult(parsed.id, result);

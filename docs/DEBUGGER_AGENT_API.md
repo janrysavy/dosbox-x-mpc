@@ -667,11 +667,12 @@ instruction, while `stop_reason.registers.phase:"after_instruction"` is its post
 private, and implicitly one-shot. Prefer it when the next action is immediately to
 resume, because separate create/continue requests have a controller race.
 
-**Current defect:** although capabilities advertise `memory_change` as a run-until
-kind, the server creates every private predicate with `once=true` and the native
-adapter rejects one-shot `memory_change`. That combination currently ends in a fault.
-Use an exact `memory_write` predicate when possible, or create a persistent public
-`memory_change` breakpoint, continue, and delete it explicitly after the stop.
+`memory_change` run-until predicates are implemented as persistent native
+breakpoints for the duration of the private operation, then deleted by the
+normal stop cleanup after the first matching change. This is required because
+the native adapter rejects one-shot `memory_change`; callers still must not send
+`once` in the predicate. Use an exact `memory_write` predicate when the actual
+write bytes are required.
 
 ### Diagnostic output and CPU trace
 
@@ -933,7 +934,8 @@ the scratch target's provenance.
 
 1. Stop, read and hash the smallest known global range, then create a
    `memory_write` watchpoint for that exact contiguous range. Prefer `memory_write`
-   over the broken private `memory_change` run-until path.
+   over a persistent `memory_change` breakpoint unless legacy value-change semantics
+   are specifically required.
 2. Continue and wait. On the stop, inspect `stop_reason.access`: it contains the actual
    access address/width and before/after bytes, which can extend beyond the watched
    overlap. Require the expected transition rather than accepting any hit.
