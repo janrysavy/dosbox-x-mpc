@@ -3614,21 +3614,29 @@ std::string AgentServer::HandleJsonRpcImpl(const std::shared_ptr<Impl>& impl, co
         } else {
             const std::shared_ptr<Impl::AdapterOperation> operation(new Impl::AdapterOperation());
             const std::string session_id = session->id;
-            if (SubmitEmulationCommandLocked(impl, [impl, operation, session_id, expected, values](const std::uint64_t) {
+            if (SubmitEmulationCommandLocked(impl, [impl, operation, session_id,
+                                                     expected_revision, expected, values](const std::uint64_t) {
                     std::string error;
                     RegisterWriteResult result;
-                    const bool success = impl->runtime->SetRegistersGuarded(
-                            expected, values, &result, &error);
                     std::uint64_t revision_before = 0;
                     std::uint64_t revision_after = 0;
                     bool revision_accounted = false;
-                    if (success) {
-                        // The request thread may time out while this command is
-                        // queued. Account for the mutation on the emulation
-                        // thread itself, so a late successful write cannot leave
-                        // the session revision unchanged.
+                    bool success = false;
+                    {
+                        // Recheck and mutate under the same controller lock. A
+                        // second request cannot change the revision between the
+                        // queue-time check and this emulation-thread write.
                         std::lock_guard<std::mutex> session_lock(impl->mutex);
-                        if (impl->session && impl->session->id == session_id) {
+                        if (!impl->session || impl->session->id != session_id ||
+                            impl->session->state_revision != expected_revision) {
+                            result.precondition_failed = true;
+                            result.mismatch_register = "state_revision";
+                            error = "Expected state revision changed before the queued register write";
+                        } else {
+                            success = impl->runtime->SetRegistersGuarded(
+                                    expected, values, &result, &error);
+                        }
+                        if (success && impl->session && impl->session->id == session_id) {
                             revision_before = impl->session->state_revision;
                             revision_after = ++impl->session->state_revision;
                             revision_accounted = true;
