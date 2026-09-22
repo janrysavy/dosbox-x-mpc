@@ -18,3 +18,9 @@ The source identities, 19 errors, build commands, isolated outputs, executable
 hashes and native test run are retained in
 [`nonagent-build-20260922.txt`](../tests/agent/evidence/nonagent-build-20260922.txt).
 This establishes configuration coverage; it makes no snapshot completeness claim.
+
+Independent review found the guard semantics sound, but requested exact Agent
+build/test command binding and an explicit CI toolset. The evidence now records
+the full Agent build launcher and a rerun of81 tests with an explicit executable
+path and matching hash. The focused matrix selects windows-2025-vs2026/v145,
+already used by the inherited VS2026 workflow; hosted success remains a CI gate.
