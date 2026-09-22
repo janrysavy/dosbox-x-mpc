@@ -115,6 +115,14 @@ cases. Full logs and executable SHA-256 are in
 This verifies the listed calendar boundaries with host synchronization disabled;
 it does not establish full machine restart or guest instruction timing parity.
 
+An independent review requested stronger negative-run provenance. The evidence
+now records the old source and unchanged test commit identities, SHA-256 values
+for both source files and the negative executable, the exact isolated build
+launcher, its successful build result, the failing native run, and the restored
+positive run (87 tests). Reconstruct the negative case with `src/hardware/cmos.cpp`
+from `50fe270` and `tests/agent/cmos_state_tests.inc` from `af7b85a`; the former
+contains the two original strict comparisons, the latter the 12-case test.
+
 ## Broader restartability audit
 
 The source-only [remaining state audit](PERSISTENT_STATE_DEBT.md) records the
