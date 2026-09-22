@@ -1,0 +1,390 @@
+CMOS native serializer evidence, Windows x64, 2026-09-22
+Baseline source: 7832299e9cf32e61c4d329ea67899d2daf3d2505
+Final executable SHA256: ef3ac9cb2b82d2d91f743df31b11fd1f6861866d050c68c5d455b753ad8e2a51
+Final build: Agent Debug SDL2|x64, VS 18 Insiders, EXITCODE=0.
+Native fixtures generated using tests/agent/build_fixture.ps1.
+
+
+=== FINAL FULL SUITE (fixed serializer; no filter) ===
+[mcp-trace] DEBUG_Init reading mcp_stdio property
+[mcp-trace] DEBUG_Init mcp_stdio=0 mcp_server_port=0
+[==========] Running 86 tests from 21 test suites.
+[----------] Global test environment set-up.
+[----------] 26 tests from DOS_FilesTest
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Basic_Failures
+[       OK ] DOS_FilesTest.DOS_MakeName_Basic_Failures (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Z_AUTOEXEC_BAT_exists
+[       OK ] DOS_FilesTest.DOS_MakeName_Z_AUTOEXEC_BAT_exists (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Drive_Index_Set_On_Failure
+[       OK ] DOS_FilesTest.DOS_MakeName_Drive_Index_Set_On_Failure (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Uppercase
+[       OK ] DOS_FilesTest.DOS_MakeName_Uppercase (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_CONVERTS_FWD_SLASH
+[       OK ] DOS_FilesTest.DOS_MakeName_CONVERTS_FWD_SLASH (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_STRIP_SPACE
+[       OK ] DOS_FilesTest.DOS_MakeName_STRIP_SPACE (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Dir_Handling
+[       OK ] DOS_FilesTest.DOS_MakeName_Dir_Handling (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Assumes_Current_Drive_And_Dir
+[       OK ] DOS_FilesTest.DOS_MakeName_Assumes_Current_Drive_And_Dir (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Illegal_Chars_After_8_3
+[       OK ] DOS_FilesTest.DOS_MakeName_Illegal_Chars_After_8_3 (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_DOS_PATHLENGTH_checks
+[       OK ] DOS_FilesTest.DOS_MakeName_DOS_PATHLENGTH_checks (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Enforce_8_3
+[       OK ] DOS_FilesTest.DOS_MakeName_Enforce_8_3 (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Dot_Handling
+[       OK ] DOS_FilesTest.DOS_MakeName_Dot_Handling (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_No_SlashSlash
+[       OK ] DOS_FilesTest.DOS_MakeName_No_SlashSlash (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_GoodChars
+[       OK ] DOS_FilesTest.DOS_MakeName_GoodChars (14 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_DBCS
+[       OK ] DOS_FilesTest.DOS_MakeName_DBCS (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Colon_Illegal_Paths
+[       OK ] DOS_FilesTest.DOS_MakeName_Colon_Illegal_Paths (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_Ending_Slash
+[       OK ] DOS_FilesTest.DOS_FindFirst_Ending_Slash (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_Rejects_Invalid_Names
+[       OK ] DOS_FilesTest.DOS_FindFirst_Rejects_Invalid_Names (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_FindVolume
+[       OK ] DOS_FilesTest.DOS_FindFirst_FindVolume (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_FindDevice
+[       OK ] DOS_FilesTest.DOS_FindFirst_FindDevice (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_FindFile
+[       OK ] DOS_FilesTest.DOS_FindFirst_FindFile (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_FindFile_Nonexistant
+[       OK ] DOS_FilesTest.DOS_FindFirst_FindFile_Nonexistant (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_ChangeDir_Rejects_File_As_Directory
+[       OK ] DOS_FilesTest.DOS_ChangeDir_Rejects_File_As_Directory (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_DTAExtendName_Mutates_Input
+[       OK ] DOS_FilesTest.DOS_DTAExtendName_Mutates_Input (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_DTAExtendName_Space_Pads
+[       OK ] DOS_FilesTest.DOS_DTAExtendName_Space_Pads (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_DTAExtendName_Enforces_8_3
+[       OK ] DOS_FilesTest.DOS_DTAExtendName_Enforces_8_3 (0 ms)
+[----------] 26 tests from DOS_FilesTest (14 ms total)
+
+[----------] 4 tests from WildFileCmp
+[ RUN      ] WildFileCmp.ExactMatch
+[       OK ] WildFileCmp.ExactMatch (0 ms)
+[ RUN      ] WildFileCmp.WildDotWild
+[       OK ] WildFileCmp.WildDotWild (0 ms)
+[ RUN      ] WildFileCmp.WildcardNoExt
+[       OK ] WildFileCmp.WildcardNoExt (0 ms)
+[ RUN      ] WildFileCmp.QuestionMark
+[       OK ] WildFileCmp.QuestionMark (0 ms)
+[----------] 4 tests from WildFileCmp (0 ms total)
+
+[----------] 1 test from LWildFileCmp
+[ RUN      ] LWildFileCmp.LFNCompare
+[       OK ] LWildFileCmp.LFNCompare (0 ms)
+[----------] 1 test from LWildFileCmp (0 ms total)
+
+[----------] 12 tests from Set_Label
+[ RUN      ] Set_Label.Daggerfall
+[       OK ] Set_Label.Daggerfall (0 ms)
+[ RUN      ] Set_Label.DaggerfallCD
+[       OK ] Set_Label.DaggerfallCD (0 ms)
+[ RUN      ] Set_Label.LongerThan11
+[       OK ] Set_Label.LongerThan11 (0 ms)
+[ RUN      ] Set_Label.LongerThan11CD
+[       OK ] Set_Label.LongerThan11CD (0 ms)
+[ RUN      ] Set_Label.ShorterThan8
+[       OK ] Set_Label.ShorterThan8 (0 ms)
+[ RUN      ] Set_Label.ShorterThan8CD
+[       OK ] Set_Label.ShorterThan8CD (0 ms)
+[ RUN      ] Set_Label.EqualTo8
+[       OK ] Set_Label.EqualTo8 (0 ms)
+[ RUN      ] Set_Label.EqualTo8CD
+[       OK ] Set_Label.EqualTo8CD (0 ms)
+[ RUN      ] Set_Label.StripEndingDot
+[       OK ] Set_Label.StripEndingDot (0 ms)
+[ RUN      ] Set_Label.NoStripEndingDotCD
+[       OK ] Set_Label.NoStripEndingDotCD (0 ms)
+[ RUN      ] Set_Label.InvalidCharsEndingDot
+[       OK ] Set_Label.InvalidCharsEndingDot (0 ms)
+[ RUN      ] Set_Label.InvalidCharsEndingDotCD
+[       OK ] Set_Label.InvalidCharsEndingDotCD (0 ms)
+[----------] 12 tests from Set_Label (0 ms total)
+
+[----------] 9 tests from DOS_Shell_CMDSTest
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Separating_Chars
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Separating_Chars (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_All_Cmds_Do_Valid_Execute
+[       OK ] DOS_Shell_CMDSTest.DoCommand_All_Cmds_Do_Valid_Execute (3 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Trim_Space
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Trim_Space (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Splits_Cmd_and_Args
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Splits_Cmd_and_Args (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Doesnt_Split_Colon
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Doesnt_Split_Colon (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Nospace_Dot_Handling
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Nospace_Dot_Handling (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Nospace_Slash_Handling
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Nospace_Slash_Handling (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.CMD_ECHO_off_on
+[       OK ] DOS_Shell_CMDSTest.CMD_ECHO_off_on (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.CMD_ECHO_space_handling
+[       OK ] DOS_Shell_CMDSTest.CMD_ECHO_space_handling (0 ms)
+[----------] 9 tests from DOS_Shell_CMDSTest (5 ms total)
+
+[----------] 1 test from DOS_Shell_REDIRTest
+[ RUN      ] DOS_Shell_REDIRTest.CMD_Redirection
+[       OK ] DOS_Shell_REDIRTest.CMD_Redirection (0 ms)
+[----------] 1 test from DOS_Shell_REDIRTest (0 ms total)
+
+[----------] 2 tests from AgentConfig
+[ RUN      ] AgentConfig.LoadsOnlyTheExplicitConfigFile
+[       OK ] AgentConfig.LoadsOnlyTheExplicitConfigFile (0 ms)
+[ RUN      ] AgentConfig.StartupLogContainsResolvedLimits
+[       OK ] AgentConfig.StartupLogContainsResolvedLimits (0 ms)
+[----------] 2 tests from AgentConfig (0 ms total)
+
+[----------] 3 tests from AgentBridge
+[ RUN      ] AgentBridge.RejectsPumpFromNonEmulationThread
+[       OK ] AgentBridge.RejectsPumpFromNonEmulationThread (0 ms)
+[ RUN      ] AgentBridge.PreservesSubmissionOrderUnderConcurrentLoad
+[       OK ] AgentBridge.PreservesSubmissionOrderUnderConcurrentLoad (2 ms)
+[ RUN      ] AgentBridge.DelaysRetriesAndDropsPendingCommandsOnShutdown
+[       OK ] AgentBridge.DelaysRetriesAndDropsPendingCommandsOnShutdown (51 ms)
+[----------] 3 tests from AgentBridge (54 ms total)
+
+[----------] 4 tests from AgentProtocol
+[ RUN      ] AgentProtocol.RejectsInvalidRequestsAndOversizedMessages
+[       OK ] AgentProtocol.RejectsInvalidRequestsAndOversizedMessages (0 ms)
+[ RUN      ] AgentProtocol.ReportsBuildCapabilitiesAndLimits
+[       OK ] AgentProtocol.ReportsBuildCapabilitiesAndLimits (5 ms)
+[ RUN      ] AgentProtocol.ValidatesExactWatchpointKindsAndLengthsBeforeDispatch
+[       OK ] AgentProtocol.ValidatesExactWatchpointKindsAndLengthsBeforeDispatch (2 ms)
+[ RUN      ] AgentProtocol.CreatesAndListsTypedSoftwareInterruptBreakpoints
+[       OK ] AgentProtocol.CreatesAndListsTypedSoftwareInterruptBreakpoints (2 ms)
+[----------] 4 tests from AgentProtocol (11 ms total)
+
+[----------] 1 test from AgentInput
+[ RUN      ] AgentInput.DeliversOrderedDeviceEventsAndReportsExactStateWhileRunning
+[       OK ] AgentInput.DeliversOrderedDeviceEventsAndReportsExactStateWhileRunning (3 ms)
+[----------] 1 test from AgentInput (3 ms total)
+
+[----------] 3 tests from AgentRunUntil
+[ RUN      ] AgentRunUntil.InstallsResumesStopsAndRemovesOnePrivatePredicate
+[       OK ] AgentRunUntil.InstallsResumesStopsAndRemovesOnePrivatePredicate (1 ms)
+[ RUN      ] AgentRunUntil.StopsAtBoundedEmulatedTimeAndReportsOvershoot
+[       OK ] AgentRunUntil.StopsAtBoundedEmulatedTimeAndReportsOvershoot (2 ms)
+[ RUN      ] AgentRunUntil.MemoryChangeUsesPersistentNativeWatchAndCleansItUp
+[       OK ] AgentRunUntil.MemoryChangeUsesPersistentNativeWatchAndCleansItUp (1 ms)
+[----------] 3 tests from AgentRunUntil (6 ms total)
+
+[----------] 1 test from AgentCheckpoint
+[ RUN      ] AgentCheckpoint.CreatesRestoresListsDeletesAndInvalidatesOldResponses
+[       OK ] AgentCheckpoint.CreatesRestoresListsDeletesAndInvalidatesOldResponses (2 ms)
+[----------] 1 test from AgentCheckpoint (2 ms total)
+
+[----------] 1 test from AgentTrace
+[ RUN      ] AgentTrace.PreservesOrderedTypedEffectsThroughPaging
+[       OK ] AgentTrace.PreservesOrderedTypedEffectsThroughPaging (0 ms)
+[----------] 1 test from AgentTrace (0 ms total)
+
+[----------] 1 test from AgentHardwareTrace
+[ RUN      ] AgentHardwareTrace.BoundsFiltersPagesAndExpiresOverwrittenCursors
+[       OK ] AgentHardwareTrace.BoundsFiltersPagesAndExpiresOverwrittenCursors (0 ms)
+[----------] 1 test from AgentHardwareTrace (0 ms total)
+
+[----------] 2 tests from AgentDosFileTrace
+[ RUN      ] AgentDosFileTrace.FiltersPspHashesPayloadAndBoundsPages
+[       OK ] AgentDosFileTrace.FiltersPspHashesPayloadAndBoundsPages (0 ms)
+[ RUN      ] AgentDosFileTrace.RpcStartReadAndStopUseTargetPsp
+[       OK ] AgentDosFileTrace.RpcStartReadAndStopUseTargetPsp (1 ms)
+[----------] 2 tests from AgentDosFileTrace (1 ms total)
+
+[----------] 1 test from AgentDos
+[ RUN      ] AgentDos.ReturnsLoaderMetadataAndTypedMcbOwnership
+[       OK ] AgentDos.ReturnsLoaderMetadataAndTypedMcbOwnership (1 ms)
+[----------] 1 test from AgentDos (1 ms total)
+
+[----------] 1 test from AgentVideo
+[ RUN      ] AgentVideo.ReturnsOneAtomicTypedSnapshotAndRejectsRunningTargets
+[       OK ] AgentVideo.ReturnsOneAtomicTypedSnapshotAndRejectsRunningTargets (3 ms)
+[----------] 1 test from AgentVideo (4 ms total)
+
+[----------] 1 test from AgentLifecycle
+[ RUN      ] AgentLifecycle.StopsAndRestartsTheSameServer
+[       OK ] AgentLifecycle.StopsAndRestartsTheSameServer (0 ms)
+[----------] 1 test from AgentLifecycle (0 ms total)
+
+[----------] 6 tests from AgentSession
+[ RUN      ] AgentSession.EnforcesSingleSessionAndStartupStopState
+[       OK ] AgentSession.EnforcesSingleSessionAndStartupStopState (1 ms)
+[ RUN      ] AgentSession.ReusesCompletedStartRequestAndRejectsConflicts
+[       OK ] AgentSession.ReusesCompletedStartRequestAndRejectsConflicts (1 ms)
+[ RUN      ] AgentSession.BlocksStateOperationsWhileRunningAndWaitsForPause
+[       OK ] AgentSession.BlocksStateOperationsWhileRunningAndWaitsForPause (3 ms)
+[ RUN      ] AgentSession.ReportsOnlyTheTargetPspAsAProgramExit
+[       OK ] AgentSession.ReportsOnlyTheTargetPspAsAProgramExit (1 ms)
+[ RUN      ] AgentSession.LabelsControllerTerminationAsSessionStop
+[       OK ] AgentSession.LabelsControllerTerminationAsSessionStop (1 ms)
+[ RUN      ] AgentSession.ReusesCompletedRequestResultsAndRejectsConflicts
+[       OK ] AgentSession.ReusesCompletedRequestResultsAndRejectsConflicts (1 ms)
+[----------] 6 tests from AgentSession (9 ms total)
+
+[----------] 2 tests from DebuggerOutputParser
+[ RUN      ] DebuggerOutputParser.RejectsMissingRegisterFieldsWithoutPartialResult
+[       OK ] DebuggerOutputParser.RejectsMissingRegisterFieldsWithoutPartialResult (0 ms)
+[ RUN      ] DebuggerOutputParser.RejectsAbnormalSpacingWithoutPartialResult
+[       OK ] DebuggerOutputParser.RejectsAbnormalSpacingWithoutPartialResult (0 ms)
+[----------] 2 tests from DebuggerOutputParser (0 ms total)
+
+[----------] 4 tests from CmosState
+[ RUN      ] CmosState.RestoresClockModeAlarmAndPendingSync
+[       OK ] CmosState.RestoresClockModeAlarmAndPendingSync (78 ms)
+[ RUN      ] CmosState.LockedTimerDoesNotAdvanceAfterRestore
+[       OK ] CmosState.LockedTimerDoesNotAdvanceAfterRestore (78 ms)
+[ RUN      ] CmosState.RestoredMidnightMatchesUninterruptedClockAndAlarm
+[       OK ] CmosState.RestoredMidnightMatchesUninterruptedClockAndAlarm (76 ms)
+[ RUN      ] CmosState.RestoresBcdAndTwelveHourWriteInterpretation
+[       OK ] CmosState.RestoresBcdAndTwelveHourWriteInterpretation (76 ms)
+[----------] 4 tests from CmosState (309 ms total)
+
+[----------] Global test environment tear-down
+[==========] 86 tests from 21 test suites ran. (427 ms total)
+[  PASSED  ] 86 tests.
+LOG: Unit test completed: success
+GoogleTest exit code: 0
+Full output: D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos\tests\agent\cmos-full-final-2.log
+
+=== NEGATIVE CONTROL (original baseline cmos.cpp plus the four regression cases, before capture-failure teardown guard; GTEST_FILTER=CmosState.*) ===
+[mcp-trace] DEBUG_Init reading mcp_stdio property
+[mcp-trace] DEBUG_Init mcp_stdio=0 mcp_server_port=0
+Note: Google Test filter = CmosState.*
+[==========] Running 4 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 4 tests from CmosState
+[ RUN      ] CmosState.RestoresClockModeAlarmAndPendingSync
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos\tests\agent\cmos_state_tests.inc(120): error: Expected equality of these values:
+  59
+  IO_ReadB(0x71)
+    Which is: '4' (52, 0x34)
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos\tests\agent\cmos_state_tests.inc(121): error: Expected equality of these values:
+  expected
+    Which is: { ';' (59, 0x3B), '\0', ';' (59, 0x3B), '\0', '\x17' (23), '\0', '\x2' (2), '\x1B' (27), '\x2' (2), '\0', '\x14' (20), '\x86' (134) }
+  ClockPorts()
+    Which is: { '\x12' (18), '\x13' (19), '4' (52, 0x34), '\x14' (20), '\x5' (5), '\x3' (3), '\x2' (2), '\x17' (23), '\b' (8), '#' (35, 0x23), '\x19' (25), '\x86' (134) }
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos\tests\agent\cmos_state_tests.inc(122): error: Expected equality of these values:
+  951695999
+  cmos.clock_time_t
+    Which is: 1
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos\tests\agent\cmos_state_tests.inc(123): error: Value of: cmos_sync_flag
+  Actual: false
+Expected: true
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos\tests\agent\cmos_state_tests.inc(124): error: Expected equality of these values:
+  51
+  cmos_sync_sec
+    Which is: '\0'
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos\tests\agent\cmos_state_tests.inc(125): error: Expected equality of these values:
+  42
+  cmos_sync_min
+    Which is: '\0'
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos\tests\agent\cmos_state_tests.inc(126): error: Expected equality of these values:
+  13
+  cmos_sync_hour
+    Which is: '\0'
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos\tests\agent\cmos_state_tests.inc(127): error: Value of: cmos.lock
+  Actual: false
+Expected: true
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos\tests\agent\cmos_state_tests.inc(128): error: Value of: cmos.bcd
+  Actual: true
+Expected: false
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos\tests\agent\cmos_state_tests.inc(129): error: Value of: cmos.ampm
+  Actual: true
+Expected: false
+[  FAILED  ] CmosState.RestoresClockModeAlarmAndPendingSync (80 ms)
+[ RUN      ] CmosState.LockedTimerDoesNotAdvanceAfterRestore
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos\tests\agent\cmos_state_tests.inc(141): error: Expected equality of these values:
+  expected
+    Which is: { ';' (59, 0x3B), '\0', ';' (59, 0x3B), '\0', '\x17' (23), '\0', '\x2' (2), '\x1B' (27), '\x2' (2), '\0', '\x14' (20), '\x86' (134) }
+  ClockPorts()
+    Which is: { '\x13' (19), '\x13' (19), '4' (52, 0x34), '\x14' (20), '\x5' (5), '\x3' (3), '\x2' (2), '\x17' (23), '\b' (8), '#' (35, 0x23), '\x19' (25), '\x86' (134) }
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos\tests\agent\cmos_state_tests.inc(142): error: Expected equality of these values:
+  951695999
+  cmos.clock_time_t
+    Which is: 2
+[  FAILED  ] CmosState.LockedTimerDoesNotAdvanceAfterRestore (81 ms)
+[ RUN      ] CmosState.RestoredMidnightMatchesUninterruptedClockAndAlarm
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos\tests\agent\cmos_state_tests.inc(163): error: Expected equality of these values:
+  expected
+    Which is: { '\0', '\0', '\0', '\0', '\0', '\0', '\x3' (3), '\x1C' (28), '\x2' (2), '\0', '\x14' (20), '6' (54, 0x36) }
+  ClockPorts()
+    Which is: { '\x13' (19), '\x13' (19), '4' (52, 0x34), '\x14' (20), '\x5' (5), '\x3' (3), '\x3' (3), '\x17' (23), '\b' (8), '#' (35, 0x23), '\x19' (25), '6' (54, 0x36) }
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos\tests\agent\cmos_state_tests.inc(164): error: Expected equality of these values:
+  status
+    Which is: '\xB0' (176)
+  Read(0x0c)
+    Which is: '\x90' (144)
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos\tests\agent\cmos_state_tests.inc(166): error: Expected equality of these values:
+  time
+    Which is: 951696000
+  cmos.clock_time_t
+    Which is: 2
+[  FAILED  ] CmosState.RestoredMidnightMatchesUninterruptedClockAndAlarm (75 ms)
+[ RUN      ] CmosState.RestoresBcdAndTwelveHourWriteInterpretation
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos\tests\agent\cmos_state_tests.inc(180): error: Expected equality of these values:
+  expected
+    Which is: { 'G' (71, 0x47), '\0', 'Y' (89, 0x59), '\0', '\t' (9), '\0', '\x2' (2), '\'' (39, 0x27), '\x2' (2), '\0', ' ' (32, 0x20), '\x80' (128) }
+  ClockPorts()
+    Which is: { '/' (47, 0x2F), '\0', ';' (59, 0x3B), '\0', '\t' (9), '\0', '\x2' (2), '\x1B' (27), '\x2' (2), '\0', '\x14' (20), '\x80' (128) }
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos\tests\agent\cmos_state_tests.inc(182): error: Value of: cmos.bcd
+  Actual: false
+Expected: true
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos\tests\agent\cmos_state_tests.inc(183): error: Value of: cmos.ampm
+  Actual: false
+Expected: true
+[  FAILED  ] CmosState.RestoresBcdAndTwelveHourWriteInterpretation (76 ms)
+[----------] 4 tests from CmosState (313 ms total)
+
+[----------] Global test environment tear-down
+[==========] 4 tests from 1 test suite ran. (313 ms total)
+[  PASSED  ] 0 tests.
+[  FAILED  ] 4 tests, listed below:
+[  FAILED  ] CmosState.RestoresClockModeAlarmAndPendingSync
+[  FAILED  ] CmosState.LockedTimerDoesNotAdvanceAfterRestore
+[  FAILED  ] CmosState.RestoredMidnightMatchesUninterruptedClockAndAlarm
+[  FAILED  ] CmosState.RestoresBcdAndTwelveHourWriteInterpretation
+
+ 4 FAILED TESTS
+LOG: Unit test completed: failure
+GoogleTest exit code: 1
+Full output: D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos\tests\agent\cmos-negative.log
+
+=== INITIAL CALENDAR BOUNDARY (before fixture changed Feb 28 to Feb 27; fixed serializer) ===
+[mcp-trace] DEBUG_Init reading mcp_stdio property
+[mcp-trace] DEBUG_Init mcp_stdio=0 mcp_server_port=0
+Note: Google Test filter = CmosState.*
+[==========] Running 4 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 4 tests from CmosState
+[ RUN      ] CmosState.RestoresClockModeAlarmAndPendingSync
+[       OK ] CmosState.RestoresClockModeAlarmAndPendingSync (90 ms)
+[ RUN      ] CmosState.LockedTimerDoesNotAdvanceAfterRestore
+[       OK ] CmosState.LockedTimerDoesNotAdvanceAfterRestore (109 ms)
+[ RUN      ] CmosState.RestoredMidnightMatchesUninterruptedAlarmAndLeapDay
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos\tests\agent\cmos_state_tests.inc(151): error: Expected equality of these values:
+  29
+  Read(0x07)
+    Which is: '\x1' (1)
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos\tests\agent\cmos_state_tests.inc(152): error: Expected equality of these values:
+  2
+  Read(0x08)
+    Which is: '\x3' (3)
+[  FAILED  ] CmosState.RestoredMidnightMatchesUninterruptedAlarmAndLeapDay (112 ms)
+[ RUN      ] CmosState.RestoresBcdAndTwelveHourWriteInterpretation
+[       OK ] CmosState.RestoresBcdAndTwelveHourWriteInterpretation (109 ms)
+[----------] 4 tests from CmosState (422 ms total)
+
+[----------] Global test environment tear-down
+[==========] 4 tests from 1 test suite ran. (422 ms total)
+[  PASSED  ] 3 tests.
+[  FAILED  ] 1 test, listed below:
+[  FAILED  ] CmosState.RestoredMidnightMatchesUninterruptedAlarmAndLeapDay
+
+ 1 FAILED TEST
+LOG: Unit test completed: failure
