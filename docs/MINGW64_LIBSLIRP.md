@@ -16,5 +16,7 @@ job remain enabled. A focused workflow also compiles and runs a program against
 the installed libslirp using pkg-config.
 
 Local Windows MSYS2 bash syntax validation passes. The local MSYS environment
-refuses the script before mutation as expected. Full package build and linking
+refuses the script before mutation as expected (exit 1). A Windows-format
+GITHUB_WORKSPACE with an existing build directory also refuses with exit 1.
+Full package build and linking
 require the fresh GitHub Actions environment and are not yet claimed successful.
