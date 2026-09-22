@@ -108,8 +108,8 @@ year, 30/31-day months, entry into December, and year rollover. It also verifies
 weekday rollover and zero hours/minutes/seconds at midnight.
 
 Before the fix, the native test failed for seven of those dates, including
-November 30, 2023 advancing straight to January 1, 2024. With the fix, all
-**87 native tests pass**, including all 12 date cases and the existing persistence
+November 30, 2023 advancing straight to January 1, 2024. With the fix, the original pinned-lineage build passes
+**87 native tests**, including all 12 date cases and the existing persistence
 cases. Full logs and executable SHA-256 are in
 [`cmos-calendar-20260922.txt`](../tests/agent/evidence/cmos-calendar-20260922.txt).
 This verifies the listed calendar boundaries with host synchronization disabled;
@@ -129,3 +129,9 @@ The source-only [remaining state audit](PERSISTENT_STATE_DEBT.md) records the
 entire omitted CPU NMI triplet and open-file pending timestamp/I/O state, with
 exact source locations and proposed native/cold-process probes. These remain
 open debt; the CMOS tests and matching disk bytes do not prove them covered.
+
+The calendar follow-up was then prepared separately on CMOS PR head `256c2cb`.
+Its production CMOS source and tests match reviewed `f517817` byte-for-byte.
+The fresh isolated build passes **86 native tests** (one local watcher test is
+absent from the remote lineage); the appended evidence records its executable
+hash and full output. This preparation is local; no hosted CI or merge is claimed.
