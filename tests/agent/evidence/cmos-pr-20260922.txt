@@ -1008,3 +1008,22 @@ BUILD release-no-network: ['C:/Program Files/LLVM/bin/clang++.exe', '-std=c++17'
 PASS release-no-network: production fallback linked and ran
 BUILD release-with-network: ['C:/Program Files/LLVM/bin/clang++.exe', '-std=c++17', '-I', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\release-with-network', '-I', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\src\\debug', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\src\\debug\\debug_mcp.cpp', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\tests\\agent\\mcp_disabled_link.cpp', '-o', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\release-with-network\\mcp-disabled-link.exe']
 PASS release-with-network: production fallback linked and ran
+
+MSVC probe CI follow-up merge (606f21c + dfb8cdb), 2026-09-22
+Production src/ tree is byte-identical to the combined 85-test build above (git diff 606f21c -- src is empty).
+New probe executed after loading VS18 Insiders vcvars64 with --compiler cl:
+BUILD debug-on-network-off: ['cl', '/nologo', '/std:c++17', '/EHsc', '/ID:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\debug-on-network-off', '/ID:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\src\\debug', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\src\\debug\\debug_mcp.cpp', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\tests\\agent\\mcp_disabled_link.cpp', '/Fe:D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\debug-on-network-off\\mcp-disabled-link.exe', '/FoD:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\debug-on-network-off\\']
+debug_mcp.cpp
+mcp_disabled_link.cpp
+Generating Code...
+PASS debug-on-network-off: production fallback linked and ran
+BUILD debug-off-network-off: ['cl', '/nologo', '/std:c++17', '/EHsc', '/ID:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\debug-off-network-off', '/ID:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\src\\debug', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\src\\debug\\debug_mcp.cpp', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\tests\\agent\\mcp_disabled_link.cpp', '/Fe:D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\debug-off-network-off\\mcp-disabled-link.exe', '/FoD:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\debug-off-network-off\\']
+debug_mcp.cpp
+mcp_disabled_link.cpp
+Generating Code...
+PASS debug-off-network-off: production fallback linked and ran
+BUILD debug-off-network-on: ['cl', '/nologo', '/std:c++17', '/EHsc', '/ID:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\debug-off-network-on', '/ID:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\src\\debug', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\src\\debug\\debug_mcp.cpp', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\tests\\agent\\mcp_disabled_link.cpp', '/Fe:D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\debug-off-network-on\\mcp-disabled-link.exe', '/FoD:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\debug-off-network-on\\']
+debug_mcp.cpp
+mcp_disabled_link.cpp
+Generating Code...
+PASS debug-off-network-on: production fallback linked and ran

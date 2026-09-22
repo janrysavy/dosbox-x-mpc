@@ -58,3 +58,61 @@ Traceback (most recent call last):
   File "C:\Users\Jan\AppData\Local\Programs\Python\Python311\Lib\subprocess.py", line 571, in run
     raise CalledProcessError(retcode, process.args,
 subprocess.CalledProcessError: Command '['C:/msys64/mingw64/bin/g++.exe', '-std=c++17', '-I', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-no-network', '-I', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\src\\debug', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\prior-debug_mcp.cpp', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\tests\\agent\\mcp_disabled_link.cpp', '-o', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-no-network\\mcp-disabled-link.exe']' returned non-zero exit status 1.
+
+Independent review follow-up: explicit MSVC CI and fallback naming, 2026-09-22
+CI invokes vswhere for the installed VC.Tools.x86.x64 component, then calls vcvars64 and python tests/agent/test_mcp_disabled_link.py --compiler cl in the same cmd process.
+Local environment command: call "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars64.bat" >nul && python tests/agent/test_mcp_disabled_link.py --compiler cl
+Resolved local cl: C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Tools\MSVC\14.51.36231\bin\Hostx64\x64\cl.exe
+Current probe SHA256: 2d2d4646b1213011515e8d4ef851bc2cba2d924ff6518795b7bb6652f8dfaafc
+Final MSVC executable debug-on-network-off SHA256 d6adb940d66f0041faa09a6c2557beacdf1d6896ec4759dd3d760a710b2808d9
+Final MSVC executable debug-off-network-off SHA256 1242bfb2bd8ccd8528c96c3c4158495e564259096ee19cdc2344f7e0293477ad
+Final MSVC executable debug-off-network-on SHA256 1242bfb2bd8ccd8528c96c3c4158495e564259096ee19cdc2344f7e0293477ad
+
+--- mcp-stub-msvc-positive.log ---
+BUILD debug-on-network-off: ['cl', '/nologo', '/std:c++17', '/EHsc', '/ID:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-on-network-off', '/ID:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\src\\debug', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\src\\debug\\debug_mcp.cpp', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\tests\\agent\\mcp_disabled_link.cpp', '/Fe:D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-on-network-off\\mcp-disabled-link.exe', '/FoD:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-on-network-off\\']
+debug_mcp.cpp
+mcp_disabled_link.cpp
+Generating Code...
+PASS debug-on-network-off: production fallback linked and ran
+BUILD debug-off-network-off: ['cl', '/nologo', '/std:c++17', '/EHsc', '/ID:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-off-network-off', '/ID:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\src\\debug', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\src\\debug\\debug_mcp.cpp', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\tests\\agent\\mcp_disabled_link.cpp', '/Fe:D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-off-network-off\\mcp-disabled-link.exe', '/FoD:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-off-network-off\\']
+debug_mcp.cpp
+mcp_disabled_link.cpp
+Generating Code...
+PASS debug-off-network-off: production fallback linked and ran
+BUILD debug-off-network-on: ['cl', '/nologo', '/std:c++17', '/EHsc', '/ID:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-off-network-on', '/ID:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\src\\debug', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\src\\debug\\debug_mcp.cpp', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\tests\\agent\\mcp_disabled_link.cpp', '/Fe:D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-off-network-on\\mcp-disabled-link.exe', '/FoD:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-off-network-on\\']
+debug_mcp.cpp
+mcp_disabled_link.cpp
+Generating Code...
+PASS debug-off-network-on: production fallback linked and ran
+
+--- mcp-stub-msvc-negative.log ---
+BUILD debug-on-network-off: ['cl', '/nologo', '/std:c++17', '/EHsc', '/ID:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-on-network-off', '/ID:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\src\\debug', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\prior-debug_mcp.cpp', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\tests\\agent\\mcp_disabled_link.cpp', '/Fe:D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-on-network-off\\mcp-disabled-link.exe', '/FoD:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-on-network-off\\']
+prior-debug_mcp.cpp
+mcp_disabled_link.cpp
+Generating Code...
+mcp_disabled_link.obj : error LNK2019: unresolved external symbol "void __cdecl ControlServer_StartStdio(void)" (?ControlServer_StartStdio@@YAXXZ) referenced in function main
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-mingw\_build\mcp-disabled-link\debug-on-network-off\mcp-disabled-link.exe : fatal error LNK1120: 1 unresolved externals
+Traceback (most recent call last):
+  File "D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-mingw\tests\agent\test_mcp_disabled_link.py", line 52, in <module>
+    main()
+  File "D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-mingw\tests\agent\test_mcp_disabled_link.py", line 46, in main
+    subprocess.run(command, check=True, cwd=output, env=environment)
+  File "C:\Users\Jan\AppData\Local\Programs\Python\Python311\Lib\subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['cl', '/nologo', '/std:c++17', '/EHsc', '/ID:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-on-network-off', '/ID:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\src\\debug', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\prior-debug_mcp.cpp', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\tests\\agent\\mcp_disabled_link.cpp', '/Fe:D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-on-network-off\\mcp-disabled-link.exe', '/FoD:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-on-network-off\\']' returned non-zero exit status 2.
+
+--- mcp-stub-renamed-clang.log ---
+BUILD debug-on-network-off: ['C:/Program Files/LLVM/bin/clang++.exe', '-std=c++17', '-I', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-on-network-off', '-I', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\src\\debug', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\src\\debug\\debug_mcp.cpp', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\tests\\agent\\mcp_disabled_link.cpp', '-o', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-on-network-off\\mcp-disabled-link.exe']
+PASS debug-on-network-off: production fallback linked and ran
+BUILD debug-off-network-off: ['C:/Program Files/LLVM/bin/clang++.exe', '-std=c++17', '-I', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-off-network-off', '-I', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\src\\debug', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\src\\debug\\debug_mcp.cpp', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\tests\\agent\\mcp_disabled_link.cpp', '-o', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-off-network-off\\mcp-disabled-link.exe']
+PASS debug-off-network-off: production fallback linked and ran
+BUILD debug-off-network-on: ['C:/Program Files/LLVM/bin/clang++.exe', '-std=c++17', '-I', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-off-network-on', '-I', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\src\\debug', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\src\\debug\\debug_mcp.cpp', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\tests\\agent\\mcp_disabled_link.cpp', '-o', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-off-network-on\\mcp-disabled-link.exe']
+PASS debug-off-network-on: production fallback linked and ran
+
+--- mcp-stub-renamed-gcc.log ---
+BUILD debug-on-network-off: ['C:/msys64/mingw64/bin/g++.exe', '-std=c++17', '-I', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-on-network-off', '-I', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\src\\debug', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\src\\debug\\debug_mcp.cpp', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\tests\\agent\\mcp_disabled_link.cpp', '-o', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-on-network-off\\mcp-disabled-link.exe']
+PASS debug-on-network-off: production fallback linked and ran
+BUILD debug-off-network-off: ['C:/msys64/mingw64/bin/g++.exe', '-std=c++17', '-I', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-off-network-off', '-I', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\src\\debug', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\src\\debug\\debug_mcp.cpp', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\tests\\agent\\mcp_disabled_link.cpp', '-o', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-off-network-off\\mcp-disabled-link.exe']
+PASS debug-off-network-off: production fallback linked and ran
+BUILD debug-off-network-on: ['C:/msys64/mingw64/bin/g++.exe', '-std=c++17', '-I', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-off-network-on', '-I', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\src\\debug', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\src\\debug\\debug_mcp.cpp', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\tests\\agent\\mcp_disabled_link.cpp', '-o', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-mingw\\_build\\mcp-disabled-link\\debug-off-network-on\\mcp-disabled-link.exe']
+PASS debug-off-network-on: production fallback linked and ran

@@ -16,9 +16,10 @@ def main():
     parser.add_argument("--source", type=Path,
                         default=ROOT / "src/debug/debug_mcp.cpp")
     args = parser.parse_args()
-    for name, debug, network in (("debug-no-network", 1, 0),
-                                 ("release-no-network", 0, 0),
-                                 ("release-with-network", 0, 1)):
+    # Every case intentionally selects the disabled-transport fallback.
+    for name, debug, network in (("debug-on-network-off", 1, 0),
+                                 ("debug-off-network-off", 0, 0),
+                                 ("debug-off-network-on", 0, 1)):
         output = ROOT / "_build/mcp-disabled-link" / name
         output.mkdir(parents=True, exist_ok=True)
         temporary = output / "tmp"
@@ -30,10 +31,17 @@ def main():
             "#define C_SDL2_NET 0\n", encoding="ascii")
         executable = output / "mcp-disabled-link.exe"
         executable.unlink(missing_ok=True)
-        command = [args.compiler, "-std=c++17", "-I", str(output),
-                   "-I", str(ROOT / "src/debug"), str(args.source.resolve()),
-                   str(ROOT / "tests/agent/mcp_disabled_link.cpp"),
-                   "-o", str(executable)]
+        sources = [str(args.source.resolve()),
+                   str(ROOT / "tests/agent/mcp_disabled_link.cpp")]
+        if Path(args.compiler).stem.lower() == "cl":
+            command = [args.compiler, "/nologo", "/std:c++17", "/EHsc",
+                       "/I" + str(output), "/I" + str(ROOT / "src/debug"),
+                       *sources, "/Fe:" + str(executable),
+                       "/Fo" + str(output) + os.sep]
+        else:
+            command = [args.compiler, "-std=c++17", "-I", str(output),
+                       "-I", str(ROOT / "src/debug"), *sources,
+                       "-o", str(executable)]
         print(f"BUILD {name}: {command!r}", flush=True)
         subprocess.run(command, check=True, cwd=output, env=environment)
         subprocess.run([str(executable)], check=True, cwd=output, env=environment)
