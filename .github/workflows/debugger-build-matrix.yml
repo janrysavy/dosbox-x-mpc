@@ -7,7 +7,7 @@ permissions:
   contents: read
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -19,5 +19,5 @@ jobs:
       - name: Build configuration
         shell: pwsh
         run: |
-          msbuild vs/dosbox-x.sln /m:4 /p:Configuration="${{ matrix.configuration }}" /p:Platform=x64 /p:TrackFileAccess=false
+          msbuild vs/dosbox-x.sln /m:4 /p:Configuration="${{ matrix.configuration }}" /p:Platform=x64 /p:PlatformToolset=v145 /p:TrackFileAccess=false
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
