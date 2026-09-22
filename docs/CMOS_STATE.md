@@ -43,7 +43,7 @@ Run: `GTEST_FILTER=CmosState.* python tests/agent/run_gtests.py` (set the enviro
 variable using the host shell). Full native suite uses the same command without
 the filter, after `tests/agent/build_fixture.ps1`.
 
-The final build passed **86 native tests**, including all four CMOS cases.
+The original pinned-lineage build passed **86 native tests**, including all four CMOS cases.
 Replacing only `cmos.cpp` with the baseline `7832299` version and appending the
 same four regression cases produced **four failures out of four**. The fixed source was
 then restored, rebuilt and the full suite passed again. The complete final suite,
@@ -52,6 +52,15 @@ negative-control output, and initial calendar failure are retained in
 the final executable SHA-256. No cold-restart claim follows from these runs.
 The negative run preceded a test-fixture guard for failed initial capture;
 that guard changes teardown only on capture failure, not the exercised assertions.
+
+For the pull request, the CMOS-only commit was applied to remote base `03bca583`.
+The isolated build there passes **85 native tests**; the difference is the local
+memory-change watcher test, which is not part of this PR. Its complete output and
+binary SHA-256 are in
+[`cmos-pr-20260922.txt`](../tests/agent/evidence/cmos-pr-20260922.txt).
+`agent-native.yml` adds a focused Windows agent-debug build/test job because the
+existing platform workflows exercise other build configurations, not these
+agent-only CMOS regressions. CI success is separate evidence from the local run.
 
 ## Separate calendar defect discovered by the initial test
 

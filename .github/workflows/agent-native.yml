@@ -1,0 +1,41 @@
+name: Agent native regression tests
+
+on:
+  pull_request:
+    branches: [ai-re-agent]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-tests:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      ProgramData: C:\ProgramData
+      ALLUSERSPROFILE: C:\ProgramData
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build agent debug emulator
+        run: |
+          msbuild vs/dosbox-x.sln '/p:Configuration=Agent Debug SDL2' /p:Platform=x64 /p:TrackFileAccess=false /m:4 /nodeReuse:false /nologo /noconlog /fl '/flp:LogFile=agent-native-build.log;Verbosity=normal'
+          if ($LASTEXITCODE -ne 0) { throw "MSBuild failed with $LASTEXITCODE" }
+      - name: Build native test fixtures
+        run: |
+          $env:PATH = "C:\Program Files\LLVM\bin;" + $env:PATH
+          ./tests/agent/build_fixture.ps1
+      - name: Run native tests
+        run: python tests/agent/run_gtests.py --timeout 120
+      - name: Preserve build and test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-native-results
+          path: |
+            agent-native-build.log
+            tests/agent/gtest-results.log
