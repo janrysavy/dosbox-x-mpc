@@ -69,3 +69,31 @@ File checksums alone do not capture pending I/O, metadata, open-file policy or
 missing/unlinked files. Forcing `LocalFile::Flush` is not by itself a parity fix:
 it changes flags and can run guest date/time callbacks. A future storage envelope
 must cover or explicitly reject unsupported dependencies before live mutation.
+
+## Keyboard held-key reporting versus scancode modifiers
+
+Additional source audit at `256c2cb`; no live keyboard continuation experiment
+has been run. `src/hardware/keyboard.cpp:149-154` holds six independent left/right
+Ctrl, Alt and Shift booleans. `SerializeKeyboard` at lines 2977-2997 saves
+`keyb.key_pressed` but none of those six booleans. Its inherited POD restore does
+not replay the key handlers. `KEYBOARD_IsKeyPressed` at line 1940 reads only the
+saved array; agent `GetInputState` (`src/agent/debugger/debugger_adapter.cpp:631`)
+uses that accessor. A correct-looking held-key response alone therefore cannot
+prove the scancode generator's modifier state was restored.
+
+The omitted flags have concrete consumers in scan-set 1: `KBD_pause` at lines
+1789-1803 emits `E1 1D 45 E1 9D C5` without Ctrl, versus `E0 46 E0 C6` with
+exactly one Ctrl held. PrintScreen at lines 1812-1825 separately branches on
+Alt/Ctrl/Shift. `KEYBOARD_AddKey` at lines 1911-1937 first updates the array and
+then dispatches to scan-set 1 when controller translation is enabled (or scan
+set 1 is selected); the modifier handlers update the separate flags.
+
+Proposed native continuation probe (unrun): configure translated scan-set 1,
+press left Ctrl through `KEYBOARD_AddKey`, drain its initial scancode, and capture
+all state. Record an uninterrupted Pause press's bytes. Release Ctrl, restore,
+assert the reported held-key array, and repeat the same Pause press; compare the
+actual queued/scanned bytes. The source predicts an E1/Pause sequence after the
+old restore versus E0/Ctrl-Break uninterrupted, because the release cleared the
+unsaved flag. Restore the full fixture and omitted flags between cases. A fix
+needs a negative control against the prior serializer and equivalent coverage
+for the other modifier branches; no success is claimed here.
