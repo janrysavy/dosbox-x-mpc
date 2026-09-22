@@ -254,3 +254,252 @@ The 86-test pass includes the local memory-change watcher case. Source equality 
 [==========] 86 tests from 21 test suites ran. (437 ms total)
 [  PASSED  ] 86 tests.
 LOG: Unit test completed: success
+
+Win9x stub integration rehearsal (6caf613 + 606f21c), 2026-09-22
+Clean merge; all3 local-fix files still match7832299 exactly.
+Isolated Agent Debug SDL2 x64 build: EXITCODE=0, 0 errors, 25.25 seconds.
+Executable SHA256: 0c2bc52c7d3c6218db75d83f99dc63b82f41298a44495c95820f6fe42a822f86
+Command: python tests/agent/run_gtests.py --exe "bin/x64/Agent Debug SDL2/dosbox-x.exe" --log tests/agent/integration-stub-tests.log --timeout 120
+[mcp-trace] DEBUG_Init reading mcp_stdio property
+[mcp-trace] DEBUG_Init mcp_stdio=0 mcp_server_port=0
+[==========] Running 86 tests from 21 test suites.
+[----------] Global test environment set-up.
+[----------] 26 tests from DOS_FilesTest
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Basic_Failures
+[       OK ] DOS_FilesTest.DOS_MakeName_Basic_Failures (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Z_AUTOEXEC_BAT_exists
+[       OK ] DOS_FilesTest.DOS_MakeName_Z_AUTOEXEC_BAT_exists (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Drive_Index_Set_On_Failure
+[       OK ] DOS_FilesTest.DOS_MakeName_Drive_Index_Set_On_Failure (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Uppercase
+[       OK ] DOS_FilesTest.DOS_MakeName_Uppercase (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_CONVERTS_FWD_SLASH
+[       OK ] DOS_FilesTest.DOS_MakeName_CONVERTS_FWD_SLASH (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_STRIP_SPACE
+[       OK ] DOS_FilesTest.DOS_MakeName_STRIP_SPACE (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Dir_Handling
+[       OK ] DOS_FilesTest.DOS_MakeName_Dir_Handling (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Assumes_Current_Drive_And_Dir
+[       OK ] DOS_FilesTest.DOS_MakeName_Assumes_Current_Drive_And_Dir (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Illegal_Chars_After_8_3
+[       OK ] DOS_FilesTest.DOS_MakeName_Illegal_Chars_After_8_3 (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_DOS_PATHLENGTH_checks
+[       OK ] DOS_FilesTest.DOS_MakeName_DOS_PATHLENGTH_checks (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Enforce_8_3
+[       OK ] DOS_FilesTest.DOS_MakeName_Enforce_8_3 (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Dot_Handling
+[       OK ] DOS_FilesTest.DOS_MakeName_Dot_Handling (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_No_SlashSlash
+[       OK ] DOS_FilesTest.DOS_MakeName_No_SlashSlash (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_GoodChars
+[       OK ] DOS_FilesTest.DOS_MakeName_GoodChars (20 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_DBCS
+[       OK ] DOS_FilesTest.DOS_MakeName_DBCS (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Colon_Illegal_Paths
+[       OK ] DOS_FilesTest.DOS_MakeName_Colon_Illegal_Paths (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_Ending_Slash
+[       OK ] DOS_FilesTest.DOS_FindFirst_Ending_Slash (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_Rejects_Invalid_Names
+[       OK ] DOS_FilesTest.DOS_FindFirst_Rejects_Invalid_Names (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_FindVolume
+[       OK ] DOS_FilesTest.DOS_FindFirst_FindVolume (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_FindDevice
+[       OK ] DOS_FilesTest.DOS_FindFirst_FindDevice (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_FindFile
+[       OK ] DOS_FilesTest.DOS_FindFirst_FindFile (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_FindFile_Nonexistant
+[       OK ] DOS_FilesTest.DOS_FindFirst_FindFile_Nonexistant (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_ChangeDir_Rejects_File_As_Directory
+[       OK ] DOS_FilesTest.DOS_ChangeDir_Rejects_File_As_Directory (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_DTAExtendName_Mutates_Input
+[       OK ] DOS_FilesTest.DOS_DTAExtendName_Mutates_Input (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_DTAExtendName_Space_Pads
+[       OK ] DOS_FilesTest.DOS_DTAExtendName_Space_Pads (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_DTAExtendName_Enforces_8_3
+[       OK ] DOS_FilesTest.DOS_DTAExtendName_Enforces_8_3 (0 ms)
+[----------] 26 tests from DOS_FilesTest (21 ms total)
+
+[----------] 4 tests from WildFileCmp
+[ RUN      ] WildFileCmp.ExactMatch
+[       OK ] WildFileCmp.ExactMatch (0 ms)
+[ RUN      ] WildFileCmp.WildDotWild
+[       OK ] WildFileCmp.WildDotWild (0 ms)
+[ RUN      ] WildFileCmp.WildcardNoExt
+[       OK ] WildFileCmp.WildcardNoExt (0 ms)
+[ RUN      ] WildFileCmp.QuestionMark
+[       OK ] WildFileCmp.QuestionMark (0 ms)
+[----------] 4 tests from WildFileCmp (0 ms total)
+
+[----------] 1 test from LWildFileCmp
+[ RUN      ] LWildFileCmp.LFNCompare
+[       OK ] LWildFileCmp.LFNCompare (0 ms)
+[----------] 1 test from LWildFileCmp (0 ms total)
+
+[----------] 12 tests from Set_Label
+[ RUN      ] Set_Label.Daggerfall
+[       OK ] Set_Label.Daggerfall (0 ms)
+[ RUN      ] Set_Label.DaggerfallCD
+[       OK ] Set_Label.DaggerfallCD (0 ms)
+[ RUN      ] Set_Label.LongerThan11
+[       OK ] Set_Label.LongerThan11 (0 ms)
+[ RUN      ] Set_Label.LongerThan11CD
+[       OK ] Set_Label.LongerThan11CD (0 ms)
+[ RUN      ] Set_Label.ShorterThan8
+[       OK ] Set_Label.ShorterThan8 (0 ms)
+[ RUN      ] Set_Label.ShorterThan8CD
+[       OK ] Set_Label.ShorterThan8CD (0 ms)
+[ RUN      ] Set_Label.EqualTo8
+[       OK ] Set_Label.EqualTo8 (0 ms)
+[ RUN      ] Set_Label.EqualTo8CD
+[       OK ] Set_Label.EqualTo8CD (0 ms)
+[ RUN      ] Set_Label.StripEndingDot
+[       OK ] Set_Label.StripEndingDot (0 ms)
+[ RUN      ] Set_Label.NoStripEndingDotCD
+[       OK ] Set_Label.NoStripEndingDotCD (0 ms)
+[ RUN      ] Set_Label.InvalidCharsEndingDot
+[       OK ] Set_Label.InvalidCharsEndingDot (0 ms)
+[ RUN      ] Set_Label.InvalidCharsEndingDotCD
+[       OK ] Set_Label.InvalidCharsEndingDotCD (0 ms)
+[----------] 12 tests from Set_Label (0 ms total)
+
+[----------] 9 tests from DOS_Shell_CMDSTest
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Separating_Chars
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Separating_Chars (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_All_Cmds_Do_Valid_Execute
+[       OK ] DOS_Shell_CMDSTest.DoCommand_All_Cmds_Do_Valid_Execute (3 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Trim_Space
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Trim_Space (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Splits_Cmd_and_Args
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Splits_Cmd_and_Args (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Doesnt_Split_Colon
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Doesnt_Split_Colon (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Nospace_Dot_Handling
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Nospace_Dot_Handling (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Nospace_Slash_Handling
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Nospace_Slash_Handling (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.CMD_ECHO_off_on
+[       OK ] DOS_Shell_CMDSTest.CMD_ECHO_off_on (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.CMD_ECHO_space_handling
+[       OK ] DOS_Shell_CMDSTest.CMD_ECHO_space_handling (0 ms)
+[----------] 9 tests from DOS_Shell_CMDSTest (5 ms total)
+
+[----------] 1 test from DOS_Shell_REDIRTest
+[ RUN      ] DOS_Shell_REDIRTest.CMD_Redirection
+[       OK ] DOS_Shell_REDIRTest.CMD_Redirection (0 ms)
+[----------] 1 test from DOS_Shell_REDIRTest (0 ms total)
+
+[----------] 2 tests from AgentConfig
+[ RUN      ] AgentConfig.LoadsOnlyTheExplicitConfigFile
+[       OK ] AgentConfig.LoadsOnlyTheExplicitConfigFile (0 ms)
+[ RUN      ] AgentConfig.StartupLogContainsResolvedLimits
+[       OK ] AgentConfig.StartupLogContainsResolvedLimits (0 ms)
+[----------] 2 tests from AgentConfig (0 ms total)
+
+[----------] 3 tests from AgentBridge
+[ RUN      ] AgentBridge.RejectsPumpFromNonEmulationThread
+[       OK ] AgentBridge.RejectsPumpFromNonEmulationThread (0 ms)
+[ RUN      ] AgentBridge.PreservesSubmissionOrderUnderConcurrentLoad
+[       OK ] AgentBridge.PreservesSubmissionOrderUnderConcurrentLoad (3 ms)
+[ RUN      ] AgentBridge.DelaysRetriesAndDropsPendingCommandsOnShutdown
+[       OK ] AgentBridge.DelaysRetriesAndDropsPendingCommandsOnShutdown (50 ms)
+[----------] 3 tests from AgentBridge (54 ms total)
+
+[----------] 4 tests from AgentProtocol
+[ RUN      ] AgentProtocol.RejectsInvalidRequestsAndOversizedMessages
+[       OK ] AgentProtocol.RejectsInvalidRequestsAndOversizedMessages (0 ms)
+[ RUN      ] AgentProtocol.ReportsBuildCapabilitiesAndLimits
+[       OK ] AgentProtocol.ReportsBuildCapabilitiesAndLimits (7 ms)
+[ RUN      ] AgentProtocol.ValidatesExactWatchpointKindsAndLengthsBeforeDispatch
+[       OK ] AgentProtocol.ValidatesExactWatchpointKindsAndLengthsBeforeDispatch (4 ms)
+[ RUN      ] AgentProtocol.CreatesAndListsTypedSoftwareInterruptBreakpoints
+[       OK ] AgentProtocol.CreatesAndListsTypedSoftwareInterruptBreakpoints (3 ms)
+[----------] 4 tests from AgentProtocol (16 ms total)
+
+[----------] 1 test from AgentInput
+[ RUN      ] AgentInput.DeliversOrderedDeviceEventsAndReportsExactStateWhileRunning
+[       OK ] AgentInput.DeliversOrderedDeviceEventsAndReportsExactStateWhileRunning (4 ms)
+[----------] 1 test from AgentInput (5 ms total)
+
+[----------] 3 tests from AgentRunUntil
+[ RUN      ] AgentRunUntil.InstallsResumesStopsAndRemovesOnePrivatePredicate
+[       OK ] AgentRunUntil.InstallsResumesStopsAndRemovesOnePrivatePredicate (2 ms)
+[ RUN      ] AgentRunUntil.StopsAtBoundedEmulatedTimeAndReportsOvershoot
+[       OK ] AgentRunUntil.StopsAtBoundedEmulatedTimeAndReportsOvershoot (3 ms)
+[ RUN      ] AgentRunUntil.MemoryChangeUsesPersistentNativeWatchAndCleansItUp
+[       OK ] AgentRunUntil.MemoryChangeUsesPersistentNativeWatchAndCleansItUp (1 ms)
+[----------] 3 tests from AgentRunUntil (7 ms total)
+
+[----------] 1 test from AgentCheckpoint
+[ RUN      ] AgentCheckpoint.CreatesRestoresListsDeletesAndInvalidatesOldResponses
+[       OK ] AgentCheckpoint.CreatesRestoresListsDeletesAndInvalidatesOldResponses (3 ms)
+[----------] 1 test from AgentCheckpoint (3 ms total)
+
+[----------] 1 test from AgentTrace
+[ RUN      ] AgentTrace.PreservesOrderedTypedEffectsThroughPaging
+[       OK ] AgentTrace.PreservesOrderedTypedEffectsThroughPaging (0 ms)
+[----------] 1 test from AgentTrace (0 ms total)
+
+[----------] 1 test from AgentHardwareTrace
+[ RUN      ] AgentHardwareTrace.BoundsFiltersPagesAndExpiresOverwrittenCursors
+[       OK ] AgentHardwareTrace.BoundsFiltersPagesAndExpiresOverwrittenCursors (0 ms)
+[----------] 1 test from AgentHardwareTrace (0 ms total)
+
+[----------] 2 tests from AgentDosFileTrace
+[ RUN      ] AgentDosFileTrace.FiltersPspHashesPayloadAndBoundsPages
+[       OK ] AgentDosFileTrace.FiltersPspHashesPayloadAndBoundsPages (0 ms)
+[ RUN      ] AgentDosFileTrace.RpcStartReadAndStopUseTargetPsp
+[       OK ] AgentDosFileTrace.RpcStartReadAndStopUseTargetPsp (2 ms)
+[----------] 2 tests from AgentDosFileTrace (2 ms total)
+
+[----------] 1 test from AgentDos
+[ RUN      ] AgentDos.ReturnsLoaderMetadataAndTypedMcbOwnership
+[       OK ] AgentDos.ReturnsLoaderMetadataAndTypedMcbOwnership (1 ms)
+[----------] 1 test from AgentDos (1 ms total)
+
+[----------] 1 test from AgentVideo
+[ RUN      ] AgentVideo.ReturnsOneAtomicTypedSnapshotAndRejectsRunningTargets
+[       OK ] AgentVideo.ReturnsOneAtomicTypedSnapshotAndRejectsRunningTargets (4 ms)
+[----------] 1 test from AgentVideo (4 ms total)
+
+[----------] 1 test from AgentLifecycle
+[ RUN      ] AgentLifecycle.StopsAndRestartsTheSameServer
+[       OK ] AgentLifecycle.StopsAndRestartsTheSameServer (0 ms)
+[----------] 1 test from AgentLifecycle (0 ms total)
+
+[----------] 6 tests from AgentSession
+[ RUN      ] AgentSession.EnforcesSingleSessionAndStartupStopState
+[       OK ] AgentSession.EnforcesSingleSessionAndStartupStopState (1 ms)
+[ RUN      ] AgentSession.ReusesCompletedStartRequestAndRejectsConflicts
+[       OK ] AgentSession.ReusesCompletedStartRequestAndRejectsConflicts (1 ms)
+[ RUN      ] AgentSession.BlocksStateOperationsWhileRunningAndWaitsForPause
+[       OK ] AgentSession.BlocksStateOperationsWhileRunningAndWaitsForPause (4 ms)
+[ RUN      ] AgentSession.ReportsOnlyTheTargetPspAsAProgramExit
+[       OK ] AgentSession.ReportsOnlyTheTargetPspAsAProgramExit (1 ms)
+[ RUN      ] AgentSession.LabelsControllerTerminationAsSessionStop
+[       OK ] AgentSession.LabelsControllerTerminationAsSessionStop (1 ms)
+[ RUN      ] AgentSession.ReusesCompletedRequestResultsAndRejectsConflicts
+[       OK ] AgentSession.ReusesCompletedRequestResultsAndRejectsConflicts (1 ms)
+[----------] 6 tests from AgentSession (12 ms total)
+
+[----------] 2 tests from DebuggerOutputParser
+[ RUN      ] DebuggerOutputParser.RejectsMissingRegisterFieldsWithoutPartialResult
+[       OK ] DebuggerOutputParser.RejectsMissingRegisterFieldsWithoutPartialResult (0 ms)
+[ RUN      ] DebuggerOutputParser.RejectsAbnormalSpacingWithoutPartialResult
+[       OK ] DebuggerOutputParser.RejectsAbnormalSpacingWithoutPartialResult (0 ms)
+[----------] 2 tests from DebuggerOutputParser (0 ms total)
+
+[----------] 4 tests from CmosState
+[ RUN      ] CmosState.RestoresClockModeAlarmAndPendingSync
+[       OK ] CmosState.RestoresClockModeAlarmAndPendingSync (97 ms)
+[ RUN      ] CmosState.LockedTimerDoesNotAdvanceAfterRestore
+[       OK ] CmosState.LockedTimerDoesNotAdvanceAfterRestore (84 ms)
+[ RUN      ] CmosState.RestoredMidnightMatchesUninterruptedClockAndAlarm
+[       OK ] CmosState.RestoredMidnightMatchesUninterruptedClockAndAlarm (88 ms)
+[ RUN      ] CmosState.RestoresBcdAndTwelveHourWriteInterpretation
+[       OK ] CmosState.RestoresBcdAndTwelveHourWriteInterpretation (87 ms)
+[----------] 4 tests from CmosState (358 ms total)
+
+[----------] Global test environment tear-down
+[==========] 86 tests from 21 test suites ran. (497 ms total)
+[  PASSED  ] 86 tests.
+LOG: Unit test completed: success
