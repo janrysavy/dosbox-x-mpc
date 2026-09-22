@@ -97,3 +97,10 @@ also predicts skipping December when advancing from November. Only the
 February boundary above was measured in this slice. These calendar comparisons
 are deliberately left for a separate behavioural fix. The persistence test now
 uses February 27 to 28, while preserving the failed boundary measurement here.
+
+## Broader restartability audit
+
+The source-only [remaining state audit](PERSISTENT_STATE_DEBT.md) records the
+entire omitted CPU NMI triplet and open-file pending timestamp/I/O state, with
+exact source locations and proposed native/cold-process probes. These remain
+open debt; the CMOS tests and matching disk bytes do not prove them covered.
