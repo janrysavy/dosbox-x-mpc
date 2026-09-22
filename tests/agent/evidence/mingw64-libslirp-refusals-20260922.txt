@@ -1,0 +1,15 @@
+Native MSYS2 refusal probes,2026-09-22
+Script SHA-256: 95975ef0e0ae60c94cbd0916e7b2c311034724e0e9166a5e1dbef507d49f9abd
+cwd: D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-mingw
+command: ['C:/msys64/usr/bin/bash.exe', '-c', 'export PATH=/usr/bin:$PATH; bash scripts/ci/build-mingw64-libslirp.sh']
+wrong environment
+{'MSYSTEM': 'MSYS'}
+exit=1
+
+Expected MSYSTEM=MINGW64
+
+stale directory
+{'MSYSTEM': 'MINGW64', 'GITHUB_WORKSPACE': 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\msys-stale'}
+exit=1
+
+mkdir: cannot create directory ‘D:\\Work\\Downloads\\pyro221_next\\re\\_build\\msys-stale/_ci-libslirp’: File exists

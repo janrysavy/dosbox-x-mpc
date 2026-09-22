@@ -7163,6 +7163,7 @@ bool DEBUG_HeavyIsBreakpoint(void) {
 
 	if (skipFirstInstruction) {
 		skipFirstInstruction = false;
+#if defined(C_DOSBOX_AGENT)
 		if (agent_trace_active) {
 			DEBUG_AgentCaptureTraceEvent();
 			--agent_trace_remaining;
@@ -7170,8 +7171,10 @@ bool DEBUG_HeavyIsBreakpoint(void) {
 		agent_watch_instruction_cs = SegValue(cs);
 		agent_watch_instruction_ip = reg_eip;
 		agent_watch_instruction_active = true;
+#endif
 		return false;
 	}
+#if defined(C_DOSBOX_AGENT)
 	if (agent_time_limit_active) {
 		const uint64_t now_ns = dosbox_agent::AGENT_EmulatedTimeNs();
 		if (now_ns >= agent_time_limit_deadline_ns) {
@@ -7181,9 +7184,11 @@ bool DEBUG_HeavyIsBreakpoint(void) {
 			return true;
 		}
 	}
+#endif
 	if (!CBreakpoint::BPoints.empty() && CBreakpoint::CheckBreakpoint(SegValue(cs),reg_eip)) {
 		return true;
 	}
+#if defined(C_DOSBOX_AGENT)
 	if (agent_trace_active) {
 		DEBUG_AgentCaptureTraceEvent();
 		--agent_trace_remaining;
@@ -7191,6 +7196,7 @@ bool DEBUG_HeavyIsBreakpoint(void) {
 	agent_watch_instruction_cs = SegValue(cs);
 	agent_watch_instruction_ip = reg_eip;
 	agent_watch_instruction_active = true;
+#endif
 	return false;
 }
 

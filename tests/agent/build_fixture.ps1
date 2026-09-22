@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$RuntimeDirectory = (Join-Path $PSScriptRoot 'runtime')
+    [string]$RuntimeDirectory = (Join-Path $PSScriptRoot 'runtime'),
+    [switch]$UseClang
 )
 
 $fixtureBytes = [byte[]]@(0xB8, 0x34, 0x12, 0xBB, 0x78, 0x56, 0xBE, 0x00, 0x02, 0xC6, 0x04, 0x41, 0xC7, 0x44, 0x01, 0x43, 0x42, 0x8A, 0x04, 0x8B, 0x54, 0x01, 0x90, 0xCD, 0x20)
@@ -54,15 +55,22 @@ New-Item -ItemType Directory -Force -Path $fixtureDirectory, $RuntimeDirectory |
 
 # Keep the file-service fixture readable and reproducible. LLVM's Windows
 # binaries assemble and link the 16-bit source directly; every intermediate
-# stays under the requested runtime directory.
-$llvmMc = Get-Command llvm-mc.exe -ErrorAction Stop
-$lld = Get-Command lld.exe -ErrorAction Stop
+# stays under the requested runtime directory. For installations providing
+# clang/lld-link but not llvm-mc/lld, -UseClang uses the LLVM assembler and ELF
+# linker through those drivers.
+$assembler = Get-Command $(if ($UseClang) { 'clang.exe' } else { 'llvm-mc.exe' }) -ErrorAction Stop
+$lld = Get-Command $(if ($UseClang) { 'lld-link.exe' } else { 'lld.exe' }) -ErrorAction Stop
 $fileTraceSource = Join-Path $fixtureDirectory 'agent_dos_file_trace.asm'
 $fileTraceObject = Join-Path $RuntimeDirectory '_agent_dos_file_trace.o'
 $fileTraceBinary = Join-Path $fixtureDirectory 'AGFILE.COM'
-& $llvmMc.Source --triple=i386-pc-none-elf --filetype=obj `
-    -o $fileTraceObject $fileTraceSource
-if ($LASTEXITCODE -ne 0) { throw "llvm-mc failed to assemble $fileTraceSource" }
+if ($UseClang) {
+    & $assembler.Source --target=i386-pc-none-elf -x assembler -c `
+        -o $fileTraceObject $fileTraceSource
+} else {
+    & $assembler.Source --triple=i386-pc-none-elf --filetype=obj `
+        -o $fileTraceObject $fileTraceSource
+}
+if ($LASTEXITCODE -ne 0) { throw "LLVM assembler failed to assemble $fileTraceSource" }
 & $lld.Source -flavor gnu -m elf_i386 --image-base=0 --oformat=binary `
     -Ttext=0x100 -o $fileTraceBinary $fileTraceObject
 if ($LASTEXITCODE -ne 0) { throw "lld failed to link $fileTraceSource" }

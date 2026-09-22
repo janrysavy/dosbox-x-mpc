@@ -616,7 +616,9 @@ namespace
 class SerializeCmos : public SerializeGlobalPOD
 {
 public:
-    SerializeCmos() : SerializeGlobalPOD("CMOS")
+    // The old CMOS component omitted the live clock and decoded mode fields.
+    // A new name prevents old checkpoint layouts being accepted as this schema.
+    SerializeCmos() : SerializeGlobalPOD("CMOS-2")
     {
         registerPOD(cmos.regs);
         registerPOD(cmos.nmi);
@@ -625,6 +627,28 @@ public:
         registerPOD(cmos.timer.delay);
         registerPOD(cmos.timer.acknowledged);
         registerPOD(cmos.last.ended);
+        registerPOD(cmos.bcd);
+        registerPOD(cmos.ampm);
+        registerPOD(cmos.lock);
+        registerPOD(cmos.clock.sec);
+        registerPOD(cmos.clock.min);
+        registerPOD(cmos.clock.hour);
+        registerPOD(cmos.clock.weekday);
+        registerPOD(cmos.clock.day);
+        registerPOD(cmos.clock.month);
+        registerPOD(cmos.clock.year);
+        registerPOD(cmos.alarm.sec);
+        registerPOD(cmos.alarm.min);
+        registerPOD(cmos.alarm.hour);
+        registerPOD(cmos.clock_time_t);
+        registerPOD(cmos_sync_flag);
+        registerPOD(cmos_sync_sec);
+        registerPOD(cmos_sync_min);
+        registerPOD(cmos_sync_hour);
     }
 } dummy;
 }
+
+#if defined(C_DEBUG) && defined(C_DOSBOX_AGENT)
+#include "../../tests/agent/cmos_state_tests.inc"
+#endif
