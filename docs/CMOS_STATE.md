@@ -94,9 +94,26 @@ if (++cmos.clock.month < 12) return;
 
 The day comparison advances the month on its last day; the month comparison
 also predicts skipping December when advancing from November. Only the
-February boundary above was measured in this slice. These calendar comparisons
-are deliberately left for a separate behavioural fix. The persistence test now
-uses February 27 to 28, while preserving the failed boundary measurement here.
+February boundary above was measured in the persistence slice. Its test uses
+February 27 to 28, while preserving the failed boundary measurement here.
+
+## Calendar boundary follow-up
+
+The separate calendar fix changes both pre-increment comparisons to `<=`.
+Valid days include the last day of a month; valid months include December.
+`CalendarKeepsLastDayAndDecemberBeforeRollingOver` programs the clock via actual
+CMOS ports and invokes the real timer callback at a one-second boundary for
+12 explicit calendar transitions: 1900/2000 century cases, an ordinary leap
+year, 30/31-day months, entry into December, and year rollover. It also verifies
+weekday rollover and zero hours/minutes/seconds at midnight.
+
+Before the fix, the native test failed for seven of those dates, including
+November 30, 2023 advancing straight to January 1, 2024. With the fix, all
+**87 native tests pass**, including all 12 date cases and the existing persistence
+cases. Full logs and executable SHA-256 are in
+[`cmos-calendar-20260922.txt`](../tests/agent/evidence/cmos-calendar-20260922.txt).
+This verifies the listed calendar boundaries with host synchronization disabled;
+it does not establish full machine restart or guest instruction timing parity.
 
 ## Broader restartability audit
 

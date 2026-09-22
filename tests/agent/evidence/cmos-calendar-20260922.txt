@@ -1,0 +1,380 @@
+Calendar native regression, Windows x64, 2026-09-22
+Baseline: 50fe2707717047e873c7e2f57e50d91e8e5d88e0
+Final executable SHA256: fa8719a05d0630113b9ed6031b559989d5841532b6b8aec7221aacd38ad0cf15
+Agent Debug SDL2|x64, VS 18 Insiders, build EXITCODE=0
+
+=== NEGATIVE: same 12-case test, original strict comparisons ===
+[mcp-trace] DEBUG_Init reading mcp_stdio property
+[mcp-trace] DEBUG_Init mcp_stdio=0 mcp_server_port=0
+Note: Google Test filter = CmosState.CalendarKeepsLastDayAndDecemberBeforeRollingOver
+[==========] Running 1 test from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 1 test from CmosState
+[ RUN      ] CmosState.CalendarKeepsLastDayAndDecemberBeforeRollingOver
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(222): error: Expected equality of these values:
+  test.next_month
+    Which is: '\x2' (2)
+  Read(0x08)
+    Which is: '\x3' (3)
+Google Test trace:
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(211): 2000-2-28
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(223): error: Expected equality of these values:
+  test.next_day
+    Which is: '\x1D' (29)
+  Read(0x07)
+    Which is: '\x1' (1)
+Google Test trace:
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(211): 2000-2-28
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(222): error: Expected equality of these values:
+  test.next_month
+    Which is: '\x2' (2)
+  Read(0x08)
+    Which is: '\x3' (3)
+Google Test trace:
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(211): 1900-2-27
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(223): error: Expected equality of these values:
+  test.next_day
+    Which is: '\x1C' (28)
+  Read(0x07)
+    Which is: '\x1' (1)
+Google Test trace:
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(211): 1900-2-27
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(222): error: Expected equality of these values:
+  test.next_month
+    Which is: '\x2' (2)
+  Read(0x08)
+    Which is: '\x3' (3)
+Google Test trace:
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(211): 2024-2-28
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(223): error: Expected equality of these values:
+  test.next_day
+    Which is: '\x1D' (29)
+  Read(0x07)
+    Which is: '\x1' (1)
+Google Test trace:
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(211): 2024-2-28
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(222): error: Expected equality of these values:
+  test.next_month
+    Which is: '\x4' (4)
+  Read(0x08)
+    Which is: '\x5' (5)
+Google Test trace:
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(211): 2023-4-29
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(223): error: Expected equality of these values:
+  test.next_day
+    Which is: '\x1E' (30)
+  Read(0x07)
+    Which is: '\x1' (1)
+Google Test trace:
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(211): 2023-4-29
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(222): error: Expected equality of these values:
+  test.next_month
+    Which is: '\x1' (1)
+  Read(0x08)
+    Which is: '\x2' (2)
+Google Test trace:
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(211): 2023-1-30
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(223): error: Expected equality of these values:
+  test.next_day
+    Which is: '\x1F' (31)
+  Read(0x07)
+    Which is: '\x1' (1)
+Google Test trace:
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(211): 2023-1-30
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(221): error: Expected equality of these values:
+  test.next_year % 100
+    Which is: 23
+  Read(0x09)
+    Which is: '\x18' (24)
+Google Test trace:
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(211): 2023-11-30
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(222): error: Expected equality of these values:
+  test.next_month
+    Which is: '\f' (12, 0xC)
+  Read(0x08)
+    Which is: '\x1' (1)
+Google Test trace:
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(211): 2023-11-30
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(221): error: Expected equality of these values:
+  test.next_year % 100
+    Which is: 23
+  Read(0x09)
+    Which is: '\x18' (24)
+Google Test trace:
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(211): 2023-12-30
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(222): error: Expected equality of these values:
+  test.next_month
+    Which is: '\f' (12, 0xC)
+  Read(0x08)
+    Which is: '\x1' (1)
+Google Test trace:
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(211): 2023-12-30
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(223): error: Expected equality of these values:
+  test.next_day
+    Which is: '\x1F' (31)
+  Read(0x07)
+    Which is: '\x1' (1)
+Google Test trace:
+D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\cmos_state_tests.inc(211): 2023-12-30
+[  FAILED  ] CmosState.CalendarKeepsLastDayAndDecemberBeforeRollingOver (79 ms)
+[----------] 1 test from CmosState (79 ms total)
+
+[----------] Global test environment tear-down
+[==========] 1 test from 1 test suite ran. (79 ms total)
+[  PASSED  ] 0 tests.
+[  FAILED  ] 1 test, listed below:
+[  FAILED  ] CmosState.CalendarKeepsLastDayAndDecemberBeforeRollingOver
+
+ 1 FAILED TEST
+LOG: Unit test completed: failure
+GoogleTest exit code: 1
+Full output: D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\calendar-negative.log
+
+=== POSITIVE: inclusive comparisons, full native suite ===
+[mcp-trace] DEBUG_Init reading mcp_stdio property
+[mcp-trace] DEBUG_Init mcp_stdio=0 mcp_server_port=0
+[==========] Running 87 tests from 21 test suites.
+[----------] Global test environment set-up.
+[----------] 26 tests from DOS_FilesTest
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Basic_Failures
+[       OK ] DOS_FilesTest.DOS_MakeName_Basic_Failures (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Z_AUTOEXEC_BAT_exists
+[       OK ] DOS_FilesTest.DOS_MakeName_Z_AUTOEXEC_BAT_exists (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Drive_Index_Set_On_Failure
+[       OK ] DOS_FilesTest.DOS_MakeName_Drive_Index_Set_On_Failure (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Uppercase
+[       OK ] DOS_FilesTest.DOS_MakeName_Uppercase (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_CONVERTS_FWD_SLASH
+[       OK ] DOS_FilesTest.DOS_MakeName_CONVERTS_FWD_SLASH (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_STRIP_SPACE
+[       OK ] DOS_FilesTest.DOS_MakeName_STRIP_SPACE (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Dir_Handling
+[       OK ] DOS_FilesTest.DOS_MakeName_Dir_Handling (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Assumes_Current_Drive_And_Dir
+[       OK ] DOS_FilesTest.DOS_MakeName_Assumes_Current_Drive_And_Dir (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Illegal_Chars_After_8_3
+[       OK ] DOS_FilesTest.DOS_MakeName_Illegal_Chars_After_8_3 (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_DOS_PATHLENGTH_checks
+[       OK ] DOS_FilesTest.DOS_MakeName_DOS_PATHLENGTH_checks (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Enforce_8_3
+[       OK ] DOS_FilesTest.DOS_MakeName_Enforce_8_3 (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Dot_Handling
+[       OK ] DOS_FilesTest.DOS_MakeName_Dot_Handling (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_No_SlashSlash
+[       OK ] DOS_FilesTest.DOS_MakeName_No_SlashSlash (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_GoodChars
+[       OK ] DOS_FilesTest.DOS_MakeName_GoodChars (14 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_DBCS
+[       OK ] DOS_FilesTest.DOS_MakeName_DBCS (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Colon_Illegal_Paths
+[       OK ] DOS_FilesTest.DOS_MakeName_Colon_Illegal_Paths (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_Ending_Slash
+[       OK ] DOS_FilesTest.DOS_FindFirst_Ending_Slash (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_Rejects_Invalid_Names
+[       OK ] DOS_FilesTest.DOS_FindFirst_Rejects_Invalid_Names (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_FindVolume
+[       OK ] DOS_FilesTest.DOS_FindFirst_FindVolume (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_FindDevice
+[       OK ] DOS_FilesTest.DOS_FindFirst_FindDevice (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_FindFile
+[       OK ] DOS_FilesTest.DOS_FindFirst_FindFile (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_FindFile_Nonexistant
+[       OK ] DOS_FilesTest.DOS_FindFirst_FindFile_Nonexistant (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_ChangeDir_Rejects_File_As_Directory
+[       OK ] DOS_FilesTest.DOS_ChangeDir_Rejects_File_As_Directory (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_DTAExtendName_Mutates_Input
+[       OK ] DOS_FilesTest.DOS_DTAExtendName_Mutates_Input (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_DTAExtendName_Space_Pads
+[       OK ] DOS_FilesTest.DOS_DTAExtendName_Space_Pads (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_DTAExtendName_Enforces_8_3
+[       OK ] DOS_FilesTest.DOS_DTAExtendName_Enforces_8_3 (0 ms)
+[----------] 26 tests from DOS_FilesTest (15 ms total)
+
+[----------] 4 tests from WildFileCmp
+[ RUN      ] WildFileCmp.ExactMatch
+[       OK ] WildFileCmp.ExactMatch (0 ms)
+[ RUN      ] WildFileCmp.WildDotWild
+[       OK ] WildFileCmp.WildDotWild (0 ms)
+[ RUN      ] WildFileCmp.WildcardNoExt
+[       OK ] WildFileCmp.WildcardNoExt (0 ms)
+[ RUN      ] WildFileCmp.QuestionMark
+[       OK ] WildFileCmp.QuestionMark (0 ms)
+[----------] 4 tests from WildFileCmp (0 ms total)
+
+[----------] 1 test from LWildFileCmp
+[ RUN      ] LWildFileCmp.LFNCompare
+[       OK ] LWildFileCmp.LFNCompare (0 ms)
+[----------] 1 test from LWildFileCmp (0 ms total)
+
+[----------] 12 tests from Set_Label
+[ RUN      ] Set_Label.Daggerfall
+[       OK ] Set_Label.Daggerfall (0 ms)
+[ RUN      ] Set_Label.DaggerfallCD
+[       OK ] Set_Label.DaggerfallCD (0 ms)
+[ RUN      ] Set_Label.LongerThan11
+[       OK ] Set_Label.LongerThan11 (0 ms)
+[ RUN      ] Set_Label.LongerThan11CD
+[       OK ] Set_Label.LongerThan11CD (0 ms)
+[ RUN      ] Set_Label.ShorterThan8
+[       OK ] Set_Label.ShorterThan8 (0 ms)
+[ RUN      ] Set_Label.ShorterThan8CD
+[       OK ] Set_Label.ShorterThan8CD (0 ms)
+[ RUN      ] Set_Label.EqualTo8
+[       OK ] Set_Label.EqualTo8 (0 ms)
+[ RUN      ] Set_Label.EqualTo8CD
+[       OK ] Set_Label.EqualTo8CD (0 ms)
+[ RUN      ] Set_Label.StripEndingDot
+[       OK ] Set_Label.StripEndingDot (0 ms)
+[ RUN      ] Set_Label.NoStripEndingDotCD
+[       OK ] Set_Label.NoStripEndingDotCD (0 ms)
+[ RUN      ] Set_Label.InvalidCharsEndingDot
+[       OK ] Set_Label.InvalidCharsEndingDot (0 ms)
+[ RUN      ] Set_Label.InvalidCharsEndingDotCD
+[       OK ] Set_Label.InvalidCharsEndingDotCD (0 ms)
+[----------] 12 tests from Set_Label (0 ms total)
+
+[----------] 9 tests from DOS_Shell_CMDSTest
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Separating_Chars
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Separating_Chars (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_All_Cmds_Do_Valid_Execute
+[       OK ] DOS_Shell_CMDSTest.DoCommand_All_Cmds_Do_Valid_Execute (3 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Trim_Space
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Trim_Space (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Splits_Cmd_and_Args
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Splits_Cmd_and_Args (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Doesnt_Split_Colon
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Doesnt_Split_Colon (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Nospace_Dot_Handling
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Nospace_Dot_Handling (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Nospace_Slash_Handling
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Nospace_Slash_Handling (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.CMD_ECHO_off_on
+[       OK ] DOS_Shell_CMDSTest.CMD_ECHO_off_on (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.CMD_ECHO_space_handling
+[       OK ] DOS_Shell_CMDSTest.CMD_ECHO_space_handling (0 ms)
+[----------] 9 tests from DOS_Shell_CMDSTest (5 ms total)
+
+[----------] 1 test from DOS_Shell_REDIRTest
+[ RUN      ] DOS_Shell_REDIRTest.CMD_Redirection
+[       OK ] DOS_Shell_REDIRTest.CMD_Redirection (0 ms)
+[----------] 1 test from DOS_Shell_REDIRTest (0 ms total)
+
+[----------] 2 tests from AgentConfig
+[ RUN      ] AgentConfig.LoadsOnlyTheExplicitConfigFile
+[       OK ] AgentConfig.LoadsOnlyTheExplicitConfigFile (0 ms)
+[ RUN      ] AgentConfig.StartupLogContainsResolvedLimits
+[       OK ] AgentConfig.StartupLogContainsResolvedLimits (0 ms)
+[----------] 2 tests from AgentConfig (0 ms total)
+
+[----------] 3 tests from AgentBridge
+[ RUN      ] AgentBridge.RejectsPumpFromNonEmulationThread
+[       OK ] AgentBridge.RejectsPumpFromNonEmulationThread (0 ms)
+[ RUN      ] AgentBridge.PreservesSubmissionOrderUnderConcurrentLoad
+[       OK ] AgentBridge.PreservesSubmissionOrderUnderConcurrentLoad (3 ms)
+[ RUN      ] AgentBridge.DelaysRetriesAndDropsPendingCommandsOnShutdown
+[       OK ] AgentBridge.DelaysRetriesAndDropsPendingCommandsOnShutdown (51 ms)
+[----------] 3 tests from AgentBridge (54 ms total)
+
+[----------] 4 tests from AgentProtocol
+[ RUN      ] AgentProtocol.RejectsInvalidRequestsAndOversizedMessages
+[       OK ] AgentProtocol.RejectsInvalidRequestsAndOversizedMessages (0 ms)
+[ RUN      ] AgentProtocol.ReportsBuildCapabilitiesAndLimits
+[       OK ] AgentProtocol.ReportsBuildCapabilitiesAndLimits (6 ms)
+[ RUN      ] AgentProtocol.ValidatesExactWatchpointKindsAndLengthsBeforeDispatch
+[       OK ] AgentProtocol.ValidatesExactWatchpointKindsAndLengthsBeforeDispatch (2 ms)
+[ RUN      ] AgentProtocol.CreatesAndListsTypedSoftwareInterruptBreakpoints
+[       OK ] AgentProtocol.CreatesAndListsTypedSoftwareInterruptBreakpoints (3 ms)
+[----------] 4 tests from AgentProtocol (12 ms total)
+
+[----------] 1 test from AgentInput
+[ RUN      ] AgentInput.DeliversOrderedDeviceEventsAndReportsExactStateWhileRunning
+[       OK ] AgentInput.DeliversOrderedDeviceEventsAndReportsExactStateWhileRunning (3 ms)
+[----------] 1 test from AgentInput (3 ms total)
+
+[----------] 3 tests from AgentRunUntil
+[ RUN      ] AgentRunUntil.InstallsResumesStopsAndRemovesOnePrivatePredicate
+[       OK ] AgentRunUntil.InstallsResumesStopsAndRemovesOnePrivatePredicate (1 ms)
+[ RUN      ] AgentRunUntil.StopsAtBoundedEmulatedTimeAndReportsOvershoot
+[       OK ] AgentRunUntil.StopsAtBoundedEmulatedTimeAndReportsOvershoot (2 ms)
+[ RUN      ] AgentRunUntil.MemoryChangeUsesPersistentNativeWatchAndCleansItUp
+[       OK ] AgentRunUntil.MemoryChangeUsesPersistentNativeWatchAndCleansItUp (1 ms)
+[----------] 3 tests from AgentRunUntil (6 ms total)
+
+[----------] 1 test from AgentCheckpoint
+[ RUN      ] AgentCheckpoint.CreatesRestoresListsDeletesAndInvalidatesOldResponses
+[       OK ] AgentCheckpoint.CreatesRestoresListsDeletesAndInvalidatesOldResponses (3 ms)
+[----------] 1 test from AgentCheckpoint (3 ms total)
+
+[----------] 1 test from AgentTrace
+[ RUN      ] AgentTrace.PreservesOrderedTypedEffectsThroughPaging
+[       OK ] AgentTrace.PreservesOrderedTypedEffectsThroughPaging (0 ms)
+[----------] 1 test from AgentTrace (0 ms total)
+
+[----------] 1 test from AgentHardwareTrace
+[ RUN      ] AgentHardwareTrace.BoundsFiltersPagesAndExpiresOverwrittenCursors
+[       OK ] AgentHardwareTrace.BoundsFiltersPagesAndExpiresOverwrittenCursors (0 ms)
+[----------] 1 test from AgentHardwareTrace (0 ms total)
+
+[----------] 2 tests from AgentDosFileTrace
+[ RUN      ] AgentDosFileTrace.FiltersPspHashesPayloadAndBoundsPages
+[       OK ] AgentDosFileTrace.FiltersPspHashesPayloadAndBoundsPages (0 ms)
+[ RUN      ] AgentDosFileTrace.RpcStartReadAndStopUseTargetPsp
+[       OK ] AgentDosFileTrace.RpcStartReadAndStopUseTargetPsp (2 ms)
+[----------] 2 tests from AgentDosFileTrace (2 ms total)
+
+[----------] 1 test from AgentDos
+[ RUN      ] AgentDos.ReturnsLoaderMetadataAndTypedMcbOwnership
+[       OK ] AgentDos.ReturnsLoaderMetadataAndTypedMcbOwnership (1 ms)
+[----------] 1 test from AgentDos (1 ms total)
+
+[----------] 1 test from AgentVideo
+[ RUN      ] AgentVideo.ReturnsOneAtomicTypedSnapshotAndRejectsRunningTargets
+[       OK ] AgentVideo.ReturnsOneAtomicTypedSnapshotAndRejectsRunningTargets (4 ms)
+[----------] 1 test from AgentVideo (4 ms total)
+
+[----------] 1 test from AgentLifecycle
+[ RUN      ] AgentLifecycle.StopsAndRestartsTheSameServer
+[       OK ] AgentLifecycle.StopsAndRestartsTheSameServer (0 ms)
+[----------] 1 test from AgentLifecycle (0 ms total)
+
+[----------] 6 tests from AgentSession
+[ RUN      ] AgentSession.EnforcesSingleSessionAndStartupStopState
+[       OK ] AgentSession.EnforcesSingleSessionAndStartupStopState (1 ms)
+[ RUN      ] AgentSession.ReusesCompletedStartRequestAndRejectsConflicts
+[       OK ] AgentSession.ReusesCompletedStartRequestAndRejectsConflicts (1 ms)
+[ RUN      ] AgentSession.BlocksStateOperationsWhileRunningAndWaitsForPause
+[       OK ] AgentSession.BlocksStateOperationsWhileRunningAndWaitsForPause (4 ms)
+[ RUN      ] AgentSession.ReportsOnlyTheTargetPspAsAProgramExit
+[       OK ] AgentSession.ReportsOnlyTheTargetPspAsAProgramExit (1 ms)
+[ RUN      ] AgentSession.LabelsControllerTerminationAsSessionStop
+[       OK ] AgentSession.LabelsControllerTerminationAsSessionStop (1 ms)
+[ RUN      ] AgentSession.ReusesCompletedRequestResultsAndRejectsConflicts
+[       OK ] AgentSession.ReusesCompletedRequestResultsAndRejectsConflicts (1 ms)
+[----------] 6 tests from AgentSession (11 ms total)
+
+[----------] 2 tests from DebuggerOutputParser
+[ RUN      ] DebuggerOutputParser.RejectsMissingRegisterFieldsWithoutPartialResult
+[       OK ] DebuggerOutputParser.RejectsMissingRegisterFieldsWithoutPartialResult (0 ms)
+[ RUN      ] DebuggerOutputParser.RejectsAbnormalSpacingWithoutPartialResult
+[       OK ] DebuggerOutputParser.RejectsAbnormalSpacingWithoutPartialResult (0 ms)
+[----------] 2 tests from DebuggerOutputParser (0 ms total)
+
+[----------] 5 tests from CmosState
+[ RUN      ] CmosState.RestoresClockModeAlarmAndPendingSync
+[       OK ] CmosState.RestoresClockModeAlarmAndPendingSync (91 ms)
+[ RUN      ] CmosState.LockedTimerDoesNotAdvanceAfterRestore
+[       OK ] CmosState.LockedTimerDoesNotAdvanceAfterRestore (88 ms)
+[ RUN      ] CmosState.RestoredMidnightMatchesUninterruptedClockAndAlarm
+[       OK ] CmosState.RestoredMidnightMatchesUninterruptedClockAndAlarm (96 ms)
+[ RUN      ] CmosState.RestoresBcdAndTwelveHourWriteInterpretation
+[       OK ] CmosState.RestoresBcdAndTwelveHourWriteInterpretation (89 ms)
+[ RUN      ] CmosState.CalendarKeepsLastDayAndDecemberBeforeRollingOver
+[       OK ] CmosState.CalendarKeepsLastDayAndDecemberBeforeRollingOver (84 ms)
+[----------] 5 tests from CmosState (451 ms total)
+
+[----------] Global test environment tear-down
+[==========] 87 tests from 21 test suites ran. (575 ms total)
+[  PASSED  ] 87 tests.
+LOG: Unit test completed: success
+GoogleTest exit code: 0
+Full output: D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-calendar\tests\agent\calendar-positive.log
