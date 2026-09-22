@@ -247,3 +247,15 @@ Agent Debug SDL2|x64, VS 18 Insiders, build EXITCODE=0
 LOG: Unit test completed: success
 GoogleTest exit code: 0
 Full output: D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos-pr\tests\agent\cmos-pr-full.log
+
+=== FIXTURE DRIVER FALLBACK ===
+Command: tests/agent/build_fixture.ps1 -UseClang
+AGFILE.COM SHA256 (llvm-mc/lld AND clang/lld-link): 9fbf74c755003fd92afd0bf80739f3927f4c1c27c0895acb92d0986980c1073d
+[----------] 4 tests from CmosState (325 ms total)
+
+[----------] Global test environment tear-down
+[==========] 85 tests from 21 test suites ran. (447 ms total)
+[  PASSED  ] 85 tests.
+LOG: Unit test completed: success
+GoogleTest exit code: 0
+Full output: D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos-pr\tests\agent\cmos-clang-full.log

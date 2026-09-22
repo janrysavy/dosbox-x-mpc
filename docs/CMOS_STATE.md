@@ -69,6 +69,12 @@ binary SHA-256 are in
 `agent-native.yml` adds a focused Windows agent-debug build/test job because the
 existing platform workflows exercise other build configurations, not these
 agent-only CMOS regressions. CI success is separate evidence from the local run.
+The first hosted job built successfully but lacked `llvm-mc.exe` when generating
+fixtures (run `35727489016`). The fixture builder now offers `-UseClang`, using
+Clang's integrated assembler and `lld-link -flavor gnu`; the workflow selects it.
+Locally both tool paths produce the identical `AGFILE.COM` SHA-256
+`9fbf74c755003fd92afd0bf80739f3927f4c1c27c0895acb92d0986980c1073d`, and the full
+85-test suite passes after rebuilding fixtures with that option.
 
 ## Separate calendar defect discovered by the initial test
 

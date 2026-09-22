@@ -28,7 +28,7 @@ jobs:
       - name: Build native test fixtures
         run: |
           $env:PATH = "C:\Program Files\LLVM\bin;" + $env:PATH
-          ./tests/agent/build_fixture.ps1
+          ./tests/agent/build_fixture.ps1 -UseClang
       - name: Run native tests
         run: python tests/agent/run_gtests.py --timeout 120
       - name: Preserve build and test logs
