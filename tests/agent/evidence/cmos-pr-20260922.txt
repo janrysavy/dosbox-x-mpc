@@ -260,10 +260,10 @@ LOG: Unit test completed: success
 GoogleTest exit code: 0
 Full output: D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos-pr\tests\agent\cmos-clang-full.log
 
-Combined prerequisite integration: a20a325 plus5532b3b
-Isolated Agent Debug SDL2 x64 build:0 errors, EXITCODE=0,20.82s.
+Combined prerequisite integration: a20a325 plus 5532b3b
+Isolated Agent Debug SDL2 x64 build: 0 errors, EXITCODE=0, 20.82s.
 Executable SHA-256: 7085cb343387ae68bf636ac04fa3f8c714f53f51cdd645e0323f9f79a224550c
-Command from lane: python tests/agent/run_gtests.py --log tests/agent/cmos-pr-combined-tests.log --timeout120
+Command from lane: python tests/agent/run_gtests.py --log tests/agent/cmos-pr-combined-tests.log --timeout 120
 [mcp-trace] DEBUG_Init reading mcp_stdio property
 [mcp-trace] DEBUG_Init mcp_stdio=0 mcp_server_port=0
 [==========] Running 85 tests from 21 test suites.
