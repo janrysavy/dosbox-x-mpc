@@ -7,6 +7,8 @@ work_dir="${GITHUB_WORKSPACE:-$PWD}/_ci-libslirp"
 # Refuse stale output; every CI checkout gets a fresh directory.
 mkdir "$work_dir"
 git -C "$work_dir" init
+git -C "$work_dir" config core.autocrlf false
+git -C "$work_dir" config core.eol lf
 git -C "$work_dir" remote add origin https://github.com/msys2/MINGW-packages.git
 git -C "$work_dir" fetch --depth=1 origin "$recipe_commit"
 git -C "$work_dir" checkout --detach FETCH_HEAD

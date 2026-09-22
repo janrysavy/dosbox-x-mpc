@@ -20,3 +20,9 @@ refuses the script before mutation as expected (exit 1). A Windows-format
 GITHUB_WORKSPACE with an existing build directory also refuses with exit 1.
 Full package build and linking
 require the fresh GitHub Actions environment and are not yet claimed successful.
+
+Independent review requested deterministic LF checkouts and retained refusal
+evidence. `.gitattributes` pins the shell script to LF; the recipe checkout sets
+local core.autocrlf=false and core.eol=lf before fetching/checking out. Exact
+commands, Windows paths, script hash and exit1 transcripts are retained in
+[`mingw64-libslirp-refusals-20260922.txt`](../tests/agent/evidence/mingw64-libslirp-refusals-20260922.txt).
