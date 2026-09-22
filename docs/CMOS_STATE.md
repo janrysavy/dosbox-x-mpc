@@ -38,6 +38,14 @@ consults `time(NULL)` and can diverge after a restart delay; recording CMOS fiel
 does not virtualize host time. `sync_time` itself is configuration, not changed
 by this component.
 
+One separate open snapshot debt is `CPU_NMI_gate`: CMOS port-index writes update
+it in `src/hardware/cmos.cpp:254`, and CPU interrupt delivery consumes it in
+`src/cpu/cpu.cpp:610` (the global is defined at line 75). The CPU serializer at
+`src/cpu/cpu.cpp:4934` does not save that global, and loading CMOS fields does not
+replay the port write. This omission was verified in source, not by a live NMI
+continuation probe; this slice's tests restore the host test fixture's gate
+explicitly and do not establish full-machine NMI parity.
+
 Build: Windows x64, VS 18 Insiders, `Agent Debug SDL2`; isolated fork worktree.
 Run: `GTEST_FILTER=CmosState.* python tests/agent/run_gtests.py` (set the environment
 variable using the host shell). Full native suite uses the same command without
