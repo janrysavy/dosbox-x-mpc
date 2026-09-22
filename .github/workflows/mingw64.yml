@@ -26,7 +26,9 @@ jobs:
         with:
           msystem: MINGW64
           update: true
-          install: git make mingw-w64-x86_64-toolchain mingw-w64-x86_64-libtool mingw-w64-x86_64-nasm autoconf automake mingw-w64-x86_64-libslirp
+          install: git make base-devel mingw-w64-x86_64-toolchain mingw-w64-x86_64-libtool mingw-w64-x86_64-nasm autoconf automake
+      - name: Build pinned MINGW64 libslirp
+        run: bash scripts/ci/build-mingw64-libslirp.sh
       - name: Update build info
         shell: bash
         run: |
@@ -247,7 +249,9 @@ jobs:
         with:
           msystem: MINGW64
           update: true
-          install: git make mingw-w64-x86_64-toolchain mingw-w64-x86_64-libtool mingw-w64-x86_64-nasm autoconf automake mingw-w64-x86_64-libslirp
+          install: git make base-devel mingw-w64-x86_64-toolchain mingw-w64-x86_64-libtool mingw-w64-x86_64-nasm autoconf automake
+      - name: Build pinned MINGW64 libslirp
+        run: bash scripts/ci/build-mingw64-libslirp.sh
       - name: Update build info
         shell: bash
         run: |

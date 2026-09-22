@@ -1,12 +1,89 @@
-CMOS-only PR branch native suite, Windows x64, 2026-09-22
-Remote base: 03bca58388028801287d57c7aa50ec5bd1a81de4
-CMOS source commit: 38c3054
-Executable SHA256: 794dc098b4b054e451765a44e17eb5c5d8757faafa16d442e22ef1be9a7ad990
-Agent Debug SDL2|x64, VS 18 Insiders, build EXITCODE=0
+Non-agent debugger compile regression, Windows x64
+Base 03bca58388028801287d57c7aa50ec5bd1a81de4
+Base source SHA-256 569591c8a159b68d282c87a182c8b44bc8df1c189e2524839687ba7b7d7c179a
+Fixed working source SHA-256 cd969b5c9d33f704ff453a5182bf81c24888aa8a6bea3812d79336852d36c759
+Negative source was git show 03bca583:src/debug/debug.cpp, replacing only that file.
+Negative build errors:
+    12>D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\src\debug\debug.cpp(7166,7): error C2065: 'agent_trace_active': undeclared identifier [D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\vs\dosbox-x.vcxproj]
+    12>D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\src\debug\debug.cpp(7167,4): error C3861: 'DEBUG_AgentCaptureTraceEvent': identifier not found [D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\vs\dosbox-x.vcxproj]
+    12>D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\src\debug\debug.cpp(7168,6): error C2065: 'agent_trace_remaining': undeclared identifier [D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\vs\dosbox-x.vcxproj]
+    12>D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\src\debug\debug.cpp(7170,3): error C2065: 'agent_watch_instruction_cs': undeclared identifier [D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\vs\dosbox-x.vcxproj]
+    12>D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\src\debug\debug.cpp(7171,3): error C2065: 'agent_watch_instruction_ip': undeclared identifier [D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\vs\dosbox-x.vcxproj]
+    12>D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\src\debug\debug.cpp(7172,3): error C2065: 'agent_watch_instruction_active': undeclared identifier [D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\vs\dosbox-x.vcxproj]
+    12>D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\src\debug\debug.cpp(7175,6): error C2065: 'agent_time_limit_active': undeclared identifier [D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\vs\dosbox-x.vcxproj]
+    12>D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\src\debug\debug.cpp(7176,27): error C2653: 'dosbox_agent': is not a class or namespace name [D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\vs\dosbox-x.vcxproj]
+    12>D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\src\debug\debug.cpp(7176,41): error C3861: 'AGENT_EmulatedTimeNs': identifier not found [D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\vs\dosbox-x.vcxproj]
+    12>D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\src\debug\debug.cpp(7177,17): error C2065: 'agent_time_limit_deadline_ns': undeclared identifier [D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\vs\dosbox-x.vcxproj]
+    12>D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\src\debug\debug.cpp(7178,4): error C2065: 'agent_time_limit_active': undeclared identifier [D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\vs\dosbox-x.vcxproj]
+    12>D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\src\debug\debug.cpp(7179,4): error C2065: 'agent_time_limit_hit': undeclared identifier [D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\vs\dosbox-x.vcxproj]
+    12>D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\src\debug\debug.cpp(7180,4): error C2065: 'agent_time_limit_actual_ns': undeclared identifier [D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\vs\dosbox-x.vcxproj]
+    12>D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\src\debug\debug.cpp(7187,6): error C2065: 'agent_trace_active': undeclared identifier [D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\vs\dosbox-x.vcxproj]
+    12>D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\src\debug\debug.cpp(7188,3): error C3861: 'DEBUG_AgentCaptureTraceEvent': identifier not found [D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\vs\dosbox-x.vcxproj]
+    12>D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\src\debug\debug.cpp(7189,5): error C2065: 'agent_trace_remaining': undeclared identifier [D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\vs\dosbox-x.vcxproj]
+    12>D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\src\debug\debug.cpp(7191,2): error C2065: 'agent_watch_instruction_cs': undeclared identifier [D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\vs\dosbox-x.vcxproj]
+    12>D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\src\debug\debug.cpp(7192,2): error C2065: 'agent_watch_instruction_ip': undeclared identifier [D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\vs\dosbox-x.vcxproj]
+    12>D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\src\debug\debug.cpp(7193,2): error C2065: 'agent_watch_instruction_active': undeclared identifier [D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\vs\dosbox-x.vcxproj]
 
+nonagent-negative-build.log
+
+    1037 Warning(s)
+    19 Error(s)
+
+Time Elapsed 00:00:13.42
+EXITCODE=1
+
+nonagent-restored-build.log
+
+    1132 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:38.56
+EXITCODE=0
+
+nonagent-agent-build.log
+
+    1136 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:19.34
+EXITCODE=0
+Release SDL2 executable SHA-256 7c287f69d623e09f6e6967b34a4e8223d3a722681bf34a24f8f5500c417b05e9
+Agent Debug SDL2 executable SHA-256 2fed68aa7b1f7197762888138434cb1e2c30ff41476de4abaf8b2eb0434b2c0c
+
+Build launcher (Release SDL2; Agent Debug SDL2 changes only Configuration/log):
+@echo off
+setlocal
+set "ProgramData=C:\ProgramData"
+set "ALLUSERSPROFILE=C:\ProgramData"
+set "LANE=D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent"
+call "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
+"C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Current\Bin\amd64\MSBuild.exe" "%LANE%\vs\dosbox-x.sln" "/p:Configuration=Release SDL2" /p:Platform=x64 /p:PlatformToolset=v145 "/p:ForceImportAfterCppProps=D:\Work\Downloads\pyro221_next\re\_build\nonagent-isolation.props" /p:TrackFileAccess=false /m:8 /nodeReuse:false /nologo /noconlog /fl "/flp:LogFile=%LANE%\nonagent-restored-build.log;Verbosity=normal;Encoding=UTF-8"
+echo EXITCODE=%ERRORLEVEL% >> "%LANE%\nonagent-restored-build.log"
+
+
+
+
+
+
+
+
+
+
+
+Isolation props:
+<Project><PropertyGroup>
+<IntDir>$(MSBuildThisFileDirectory)worktrees\dosbox-nonagent\obj\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
+<OutDir>$(IntDir)</OutDir>
+<OutDir Condition="'$(MSBuildProjectName)'=='dosbox-x'">$(MSBuildThisFileDirectory)worktrees\dosbox-nonagent\bin\$(Platform)\$(Configuration)\</OutDir>
+<OutputPath>$(OutDir)</OutputPath>
+</PropertyGroup></Project>
+
+
+
+Native agent run:
 [mcp-trace] DEBUG_Init reading mcp_stdio property
 [mcp-trace] DEBUG_Init mcp_stdio=0 mcp_server_port=0
-[==========] Running 85 tests from 21 test suites.
+[==========] Running 81 tests from 20 test suites.
 [----------] Global test environment set-up.
 [----------] 26 tests from DOS_FilesTest
 [ RUN      ] DOS_FilesTest.DOS_MakeName_Basic_Failures
@@ -145,19 +222,19 @@ Agent Debug SDL2|x64, VS 18 Insiders, build EXITCODE=0
 [ RUN      ] AgentBridge.PreservesSubmissionOrderUnderConcurrentLoad
 [       OK ] AgentBridge.PreservesSubmissionOrderUnderConcurrentLoad (2 ms)
 [ RUN      ] AgentBridge.DelaysRetriesAndDropsPendingCommandsOnShutdown
-[       OK ] AgentBridge.DelaysRetriesAndDropsPendingCommandsOnShutdown (51 ms)
+[       OK ] AgentBridge.DelaysRetriesAndDropsPendingCommandsOnShutdown (52 ms)
 [----------] 3 tests from AgentBridge (55 ms total)
 
 [----------] 4 tests from AgentProtocol
 [ RUN      ] AgentProtocol.RejectsInvalidRequestsAndOversizedMessages
 [       OK ] AgentProtocol.RejectsInvalidRequestsAndOversizedMessages (0 ms)
 [ RUN      ] AgentProtocol.ReportsBuildCapabilitiesAndLimits
-[       OK ] AgentProtocol.ReportsBuildCapabilitiesAndLimits (6 ms)
+[       OK ] AgentProtocol.ReportsBuildCapabilitiesAndLimits (5 ms)
 [ RUN      ] AgentProtocol.ValidatesExactWatchpointKindsAndLengthsBeforeDispatch
 [       OK ] AgentProtocol.ValidatesExactWatchpointKindsAndLengthsBeforeDispatch (2 ms)
 [ RUN      ] AgentProtocol.CreatesAndListsTypedSoftwareInterruptBreakpoints
 [       OK ] AgentProtocol.CreatesAndListsTypedSoftwareInterruptBreakpoints (2 ms)
-[----------] 4 tests from AgentProtocol (13 ms total)
+[----------] 4 tests from AgentProtocol (11 ms total)
 
 [----------] 1 test from AgentInput
 [ RUN      ] AgentInput.DeliversOrderedDeviceEventsAndReportsExactStateWhileRunning
@@ -173,8 +250,8 @@ Agent Debug SDL2|x64, VS 18 Insiders, build EXITCODE=0
 
 [----------] 1 test from AgentCheckpoint
 [ RUN      ] AgentCheckpoint.CreatesRestoresListsDeletesAndInvalidatesOldResponses
-[       OK ] AgentCheckpoint.CreatesRestoresListsDeletesAndInvalidatesOldResponses (3 ms)
-[----------] 1 test from AgentCheckpoint (3 ms total)
+[       OK ] AgentCheckpoint.CreatesRestoresListsDeletesAndInvalidatesOldResponses (2 ms)
+[----------] 1 test from AgentCheckpoint (2 ms total)
 
 [----------] 1 test from AgentTrace
 [ RUN      ] AgentTrace.PreservesOrderedTypedEffectsThroughPaging
@@ -191,7 +268,7 @@ Agent Debug SDL2|x64, VS 18 Insiders, build EXITCODE=0
 [       OK ] AgentDosFileTrace.FiltersPspHashesPayloadAndBoundsPages (0 ms)
 [ RUN      ] AgentDosFileTrace.RpcStartReadAndStopUseTargetPsp
 [       OK ] AgentDosFileTrace.RpcStartReadAndStopUseTargetPsp (1 ms)
-[----------] 2 tests from AgentDosFileTrace (2 ms total)
+[----------] 2 tests from AgentDosFileTrace (1 ms total)
 
 [----------] 1 test from AgentDos
 [ RUN      ] AgentDos.ReturnsLoaderMetadataAndTypedMcbOwnership
@@ -200,8 +277,8 @@ Agent Debug SDL2|x64, VS 18 Insiders, build EXITCODE=0
 
 [----------] 1 test from AgentVideo
 [ RUN      ] AgentVideo.ReturnsOneAtomicTypedSnapshotAndRejectsRunningTargets
-[       OK ] AgentVideo.ReturnsOneAtomicTypedSnapshotAndRejectsRunningTargets (4 ms)
-[----------] 1 test from AgentVideo (4 ms total)
+[       OK ] AgentVideo.ReturnsOneAtomicTypedSnapshotAndRejectsRunningTargets (3 ms)
+[----------] 1 test from AgentVideo (3 ms total)
 
 [----------] 1 test from AgentLifecycle
 [ RUN      ] AgentLifecycle.StopsAndRestartsTheSameServer
@@ -221,7 +298,7 @@ Agent Debug SDL2|x64, VS 18 Insiders, build EXITCODE=0
 [       OK ] AgentSession.LabelsControllerTerminationAsSessionStop (1 ms)
 [ RUN      ] AgentSession.ReusesCompletedRequestResultsAndRejectsConflicts
 [       OK ] AgentSession.ReusesCompletedRequestResultsAndRejectsConflicts (1 ms)
-[----------] 6 tests from AgentSession (11 ms total)
+[----------] 6 tests from AgentSession (10 ms total)
 
 [----------] 2 tests from DebuggerOutputParser
 [ RUN      ] DebuggerOutputParser.RejectsMissingRegisterFieldsWithoutPartialResult
@@ -230,43 +307,29 @@ Agent Debug SDL2|x64, VS 18 Insiders, build EXITCODE=0
 [       OK ] DebuggerOutputParser.RejectsAbnormalSpacingWithoutPartialResult (0 ms)
 [----------] 2 tests from DebuggerOutputParser (0 ms total)
 
-[----------] 4 tests from CmosState
-[ RUN      ] CmosState.RestoresClockModeAlarmAndPendingSync
-[       OK ] CmosState.RestoresClockModeAlarmAndPendingSync (95 ms)
-[ RUN      ] CmosState.LockedTimerDoesNotAdvanceAfterRestore
-[       OK ] CmosState.LockedTimerDoesNotAdvanceAfterRestore (94 ms)
-[ RUN      ] CmosState.RestoredMidnightMatchesUninterruptedClockAndAlarm
-[       OK ] CmosState.RestoredMidnightMatchesUninterruptedClockAndAlarm (96 ms)
-[ RUN      ] CmosState.RestoresBcdAndTwelveHourWriteInterpretation
-[       OK ] CmosState.RestoresBcdAndTwelveHourWriteInterpretation (91 ms)
-[----------] 4 tests from CmosState (378 ms total)
-
 [----------] Global test environment tear-down
-[==========] 85 tests from 21 test suites ran. (500 ms total)
-[  PASSED  ] 85 tests.
+[==========] 81 tests from 20 test suites ran. (119 ms total)
+[  PASSED  ] 81 tests.
 LOG: Unit test completed: success
 GoogleTest exit code: 0
-Full output: D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos-pr\tests\agent\cmos-pr-full.log
+Full output: D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\tests\agent\gtest-results.log
 
-=== FIXTURE DRIVER FALLBACK ===
-Command: tests/agent/build_fixture.ps1 -UseClang
-AGFILE.COM SHA256 (llvm-mc/lld AND clang/lld-link): 9fbf74c755003fd92afd0bf80739f3927f4c1c27c0895acb92d0986980c1073d
-[----------] 4 tests from CmosState (325 ms total)
-
-[----------] Global test environment tear-down
-[==========] 85 tests from 21 test suites ran. (447 ms total)
-[  PASSED  ] 85 tests.
-LOG: Unit test completed: success
-GoogleTest exit code: 0
-Full output: D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos-pr\tests\agent\cmos-clang-full.log
-
-Combined prerequisite integration: a20a325 plus5532b3b
-Isolated Agent Debug SDL2 x64 build:0 errors, EXITCODE=0,20.82s.
-Executable SHA-256: 7085cb343387ae68bf636ac04fa3f8c714f53f51cdd645e0323f9f79a224550c
-Command from lane: python tests/agent/run_gtests.py --log tests/agent/cmos-pr-combined-tests.log --timeout120
+Independent review follow-up: exact positive build/test binding
+@echo off
+setlocal
+set "ProgramData=C:\ProgramData"
+set "ALLUSERSPROFILE=C:\ProgramData"
+set "LANE=D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent"
+call "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
+"C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Current\Bin\amd64\MSBuild.exe" "%LANE%\vs\dosbox-x.sln" "/p:Configuration=Agent Debug SDL2" /p:Platform=x64 /p:PlatformToolset=v145 "/p:ForceImportAfterCppProps=D:\Work\Downloads\pyro221_next\re\_build\nonagent-isolation.props" /p:TrackFileAccess=false /m:8 /nodeReuse:false /nologo /noconlog /fl "/flp:LogFile=%LANE%\nonagent-agent-build.log;Verbosity=normal;Encoding=UTF-8"
+echo EXITCODE=%ERRORLEVEL% >> "%LANE%\nonagent-agent-build.log"
+Working directory: D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent
+Command: python tests/agent/run_gtests.py --exe "bin/x64/Agent Debug SDL2/dosbox-x.exe" --log tests/agent/nonagent-bound-positive.log --timeout 120
+Executed path: D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\bin\x64\Agent Debug SDL2\dosbox-x.exe
+SHA-256: 2fed68aa7b1f7197762888138434cb1e2c30ff41476de4abaf8b2eb0434b2c0c
 [mcp-trace] DEBUG_Init reading mcp_stdio property
 [mcp-trace] DEBUG_Init mcp_stdio=0 mcp_server_port=0
-[==========] Running 85 tests from 21 test suites.
+[==========] Running 81 tests from 20 test suites.
 [----------] Global test environment set-up.
 [----------] 26 tests from DOS_FilesTest
 [ RUN      ] DOS_FilesTest.DOS_MakeName_Basic_Failures
@@ -321,7 +384,7 @@ Command from lane: python tests/agent/run_gtests.py --log tests/agent/cmos-pr-co
 [       OK ] DOS_FilesTest.DOS_DTAExtendName_Space_Pads (0 ms)
 [ RUN      ] DOS_FilesTest.DOS_DTAExtendName_Enforces_8_3
 [       OK ] DOS_FilesTest.DOS_DTAExtendName_Enforces_8_3 (0 ms)
-[----------] 26 tests from DOS_FilesTest (14 ms total)
+[----------] 26 tests from DOS_FilesTest (15 ms total)
 
 [----------] 4 tests from WildFileCmp
 [ RUN      ] WildFileCmp.ExactMatch
@@ -403,16 +466,16 @@ Command from lane: python tests/agent/run_gtests.py --log tests/agent/cmos-pr-co
 [ RUN      ] AgentBridge.RejectsPumpFromNonEmulationThread
 [       OK ] AgentBridge.RejectsPumpFromNonEmulationThread (0 ms)
 [ RUN      ] AgentBridge.PreservesSubmissionOrderUnderConcurrentLoad
-[       OK ] AgentBridge.PreservesSubmissionOrderUnderConcurrentLoad (2 ms)
+[       OK ] AgentBridge.PreservesSubmissionOrderUnderConcurrentLoad (3 ms)
 [ RUN      ] AgentBridge.DelaysRetriesAndDropsPendingCommandsOnShutdown
 [       OK ] AgentBridge.DelaysRetriesAndDropsPendingCommandsOnShutdown (51 ms)
-[----------] 3 tests from AgentBridge (53 ms total)
+[----------] 3 tests from AgentBridge (54 ms total)
 
 [----------] 4 tests from AgentProtocol
 [ RUN      ] AgentProtocol.RejectsInvalidRequestsAndOversizedMessages
 [       OK ] AgentProtocol.RejectsInvalidRequestsAndOversizedMessages (0 ms)
 [ RUN      ] AgentProtocol.ReportsBuildCapabilitiesAndLimits
-[       OK ] AgentProtocol.ReportsBuildCapabilitiesAndLimits (5 ms)
+[       OK ] AgentProtocol.ReportsBuildCapabilitiesAndLimits (6 ms)
 [ RUN      ] AgentProtocol.ValidatesExactWatchpointKindsAndLengthsBeforeDispatch
 [       OK ] AgentProtocol.ValidatesExactWatchpointKindsAndLengthsBeforeDispatch (2 ms)
 [ RUN      ] AgentProtocol.CreatesAndListsTypedSoftwareInterruptBreakpoints
@@ -434,7 +497,7 @@ Command from lane: python tests/agent/run_gtests.py --log tests/agent/cmos-pr-co
 [----------] 1 test from AgentCheckpoint
 [ RUN      ] AgentCheckpoint.CreatesRestoresListsDeletesAndInvalidatesOldResponses
 [       OK ] AgentCheckpoint.CreatesRestoresListsDeletesAndInvalidatesOldResponses (2 ms)
-[----------] 1 test from AgentCheckpoint (2 ms total)
+[----------] 1 test from AgentCheckpoint (3 ms total)
 
 [----------] 1 test from AgentTrace
 [ RUN      ] AgentTrace.PreservesOrderedTypedEffectsThroughPaging
@@ -474,14 +537,14 @@ Command from lane: python tests/agent/run_gtests.py --log tests/agent/cmos-pr-co
 [ RUN      ] AgentSession.ReusesCompletedStartRequestAndRejectsConflicts
 [       OK ] AgentSession.ReusesCompletedStartRequestAndRejectsConflicts (1 ms)
 [ RUN      ] AgentSession.BlocksStateOperationsWhileRunningAndWaitsForPause
-[       OK ] AgentSession.BlocksStateOperationsWhileRunningAndWaitsForPause (3 ms)
+[       OK ] AgentSession.BlocksStateOperationsWhileRunningAndWaitsForPause (4 ms)
 [ RUN      ] AgentSession.ReportsOnlyTheTargetPspAsAProgramExit
 [       OK ] AgentSession.ReportsOnlyTheTargetPspAsAProgramExit (1 ms)
 [ RUN      ] AgentSession.LabelsControllerTerminationAsSessionStop
 [       OK ] AgentSession.LabelsControllerTerminationAsSessionStop (1 ms)
 [ RUN      ] AgentSession.ReusesCompletedRequestResultsAndRejectsConflicts
 [       OK ] AgentSession.ReusesCompletedRequestResultsAndRejectsConflicts (1 ms)
-[----------] 6 tests from AgentSession (9 ms total)
+[----------] 6 tests from AgentSession (10 ms total)
 
 [----------] 2 tests from DebuggerOutputParser
 [ RUN      ] DebuggerOutputParser.RejectsMissingRegisterFieldsWithoutPartialResult
@@ -490,20 +553,9 @@ Command from lane: python tests/agent/run_gtests.py --log tests/agent/cmos-pr-co
 [       OK ] DebuggerOutputParser.RejectsAbnormalSpacingWithoutPartialResult (0 ms)
 [----------] 2 tests from DebuggerOutputParser (0 ms total)
 
-[----------] 4 tests from CmosState
-[ RUN      ] CmosState.RestoresClockModeAlarmAndPendingSync
-[       OK ] CmosState.RestoresClockModeAlarmAndPendingSync (81 ms)
-[ RUN      ] CmosState.LockedTimerDoesNotAdvanceAfterRestore
-[       OK ] CmosState.LockedTimerDoesNotAdvanceAfterRestore (75 ms)
-[ RUN      ] CmosState.RestoredMidnightMatchesUninterruptedClockAndAlarm
-[       OK ] CmosState.RestoredMidnightMatchesUninterruptedClockAndAlarm (75 ms)
-[ RUN      ] CmosState.RestoresBcdAndTwelveHourWriteInterpretation
-[       OK ] CmosState.RestoresBcdAndTwelveHourWriteInterpretation (76 ms)
-[----------] 4 tests from CmosState (307 ms total)
-
 [----------] Global test environment tear-down
-[==========] 85 tests from 21 test suites ran. (424 ms total)
-[  PASSED  ] 85 tests.
+[==========] 81 tests from 20 test suites ran. (118 ms total)
+[  PASSED  ] 81 tests.
 LOG: Unit test completed: success
 GoogleTest exit code: 0
-Full output: D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-cmos-pr\tests\agent\cmos-pr-combined-tests.log
+Full output: D:\Work\Downloads\pyro221_next\re\_build\worktrees\dosbox-nonagent\tests\agent\nonagent-bound-positive.log
