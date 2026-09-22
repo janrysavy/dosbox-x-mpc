@@ -48,8 +48,11 @@ This fixes linking; it does not implement stdio transport without SDL networking
 
 `python tests/agent/test_mcp_disabled_link.py --compiler clang++` compiles the
 production translation unit, links calls to its fallback APIs and executes the
-result in debug/no-network, release/no-network and release/network configurations.
-Both local Clang/MSVC and MinGW64 GCC pass all three. The unchanged probe fails
+result in three disabled-transport configurations: debug-on/network-off,
+debug-off/network-off and debug-off/network-on. These intentionally all select
+the fallback; enabled-transport behavior is outside this probe. The original
+local Clang (targeting the MSVC ABI) and MinGW64 GCC runs pass all three.
+The unchanged probe fails
 with the prior source's missing symbol under both compilers. Exact commands,
 source identity, hashes and output are retained in
 [`mcp-disabled-link-20260922.txt`](../tests/agent/evidence/mcp-disabled-link-20260922.txt).
@@ -59,3 +62,11 @@ still a required gate. No full Win9x success is claimed by this local probe.
 A workflow can remain `in_progress` after a child job fails. Monitor individual
 job conclusions as well as overall runs; `gh api repos/OWNER/REPO/actions/jobs/ID/logs`
 retrieves completed-job logs while `gh run view --log` still refuses them.
+
+Independent review requested an explicit CI compiler dependency. The focused
+job now locates its already-required Visual Studio C++ installation using
+vswhere, loads vcvars64, and runs the probe with cl. Actual local MSVC compilation
+also passes all three cases; prior source fails with LNK2019 for the missing
+entry. Revised Clang and GCC runs pass too. Follow-up output and compiler/script
+identities are appended to the same evidence. Hosted final-head CI remains
+required; a local compiler probe is not a complete Win9x build.
