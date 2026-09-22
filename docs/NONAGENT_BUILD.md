@@ -35,3 +35,27 @@ The isolated modern build and81 native tests pass; the legacy hosted build must
 still confirm the fix. Source identity, failingCI link, exact build/test commands
 and executable hash are in
 [`mcp-cctype-20260922.txt`](../tests/agent/evidence/mcp-cctype-20260922.txt).
+
+## Debug build without SDL networking (Win9x)
+
+The retained Win9x job links a debug build with `--disable-sdlnet` (see
+`build-mingw-lowend9x`). That selects the fallback block in `debug_mcp.cpp`,
+which lacked `ControlServer_StartStdio` despite `DEBUG_Init` referencing it.
+Job 106770092621 failed with that unresolved symbol. The missing definition is
+also present in remote base `03bca583`; the preceding header fix did not cause it.
+Add the same no-op fallback used by the other disabled channel entry points.
+This fixes linking; it does not implement stdio transport without SDL networking.
+
+`python tests/agent/test_mcp_disabled_link.py --compiler clang++` compiles the
+production translation unit, links calls to its fallback APIs and executes the
+result in debug/no-network, release/no-network and release/network configurations.
+Both local Clang/MSVC and MinGW64 GCC pass all three. The unchanged probe fails
+with the prior source's missing symbol under both compilers. Exact commands,
+source identity, hashes and output are retained in
+[`mcp-disabled-link-20260922.txt`](../tests/agent/evidence/mcp-disabled-link-20260922.txt).
+The focused build matrix runs the probe; the complete Win9x hosted build is
+still a required gate. No full Win9x success is claimed by this local probe.
+
+A workflow can remain `in_progress` after a child job fails. Monitor individual
+job conclusions as well as overall runs; `gh api repos/OWNER/REPO/actions/jobs/ID/logs`
+retrieves completed-job logs while `gh run view --log` still refuses them.

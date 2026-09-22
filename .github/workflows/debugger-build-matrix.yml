@@ -16,6 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: microsoft/setup-msbuild@v2
+      - name: Compile and run MCP disabled-transport regression
+        if: matrix.configuration == 'Agent Debug SDL2'
+        run: python tests/agent/test_mcp_disabled_link.py --compiler clang++
       - name: Build configuration
         shell: pwsh
         run: |
