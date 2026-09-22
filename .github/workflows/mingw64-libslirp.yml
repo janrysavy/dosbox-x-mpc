@@ -1,0 +1,28 @@
+name: MINGW64 libslirp dependency regression
+on:
+  pull_request:
+    branches: [ai-re-agent]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dependency:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: git base-devel mingw-w64-x86_64-toolchain
+      - name: Build and install pinned recipe
+        run: bash scripts/ci/build-mingw64-libslirp.sh
+      - name: Compile and run against installed library
+        run: |
+          printf '#include <libslirp.h>\nint main(void) { return slirp_version_string() == 0; }\n' > _ci-libslirp/probe.c
+          gcc _ci-libslirp/probe.c -o _ci-libslirp/probe.exe $(pkg-config --cflags --libs slirp)
+          ./_ci-libslirp/probe.exe

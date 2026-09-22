@@ -27,6 +27,7 @@
 #undef snprintf
 #endif
 
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -1600,6 +1601,7 @@ void DEBUG_MCP_CaptureMessage(const char* message)
 #else
 
 void ControlServer_Start(uint16_t) {}
+void ControlServer_StartStdio() {}
 void ControlServer_Stop() {}
 bool ControlServer_IsConnected() { return false; }
 void ControlServer_Send(std::string) {}
