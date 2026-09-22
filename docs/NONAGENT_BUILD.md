@@ -24,3 +24,14 @@ build/test command binding and an explicit CI toolset. The evidence now records
 the full Agent build launcher and a rerun of81 tests with an explicit executable
 path and matching hash. The focused matrix selects windows-2025-vs2026/v145,
 already used by the inherited VS2026 workflow; hosted success remains a CI gate.
+
+## Legacy MSVC header follow-up
+
+Final prerequisite CI exposed a second inherited compile defect: MSVC14.16
+rejects `std::toupper` in `debug_mcp.cpp:822` because `<cctype>` was never
+included. The source matches remote base03bca583 exactly. Add its direct
+standard header; keep the existing unsigned-char cast and conversion behavior.
+The isolated modern build and81 native tests pass; the legacy hosted build must
+still confirm the fix. Source identity, failingCI link, exact build/test commands
+and executable hash are in
+[`mcp-cctype-20260922.txt`](../tests/agent/evidence/mcp-cctype-20260922.txt).
