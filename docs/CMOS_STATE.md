@@ -94,9 +94,35 @@ if (++cmos.clock.month < 12) return;
 
 The day comparison advances the month on its last day; the month comparison
 also predicts skipping December when advancing from November. Only the
-February boundary above was measured in this slice. These calendar comparisons
-are deliberately left for a separate behavioural fix. The persistence test now
-uses February 27 to 28, while preserving the failed boundary measurement here.
+February boundary above was measured in the persistence slice. Its test uses
+February 27 to 28, while preserving the failed boundary measurement here.
+
+## Calendar boundary follow-up
+
+The separate calendar fix changes both pre-increment comparisons to `<=`.
+Valid days include the last day of a month; valid months include December.
+`CalendarKeepsLastDayAndDecemberBeforeRollingOver` uses the registered CMOS
+port handlers and directly invokes `cmos_timerevent` at a one-second boundary
+for 12 explicit calendar transitions: 1900/2000 century cases, an ordinary leap
+year, 30/31-day months, entry into December, and year rollover. It also verifies
+weekday rollover and zero hours/minutes/seconds at midnight.
+
+Before the fix, the native test failed for seven of those dates, including
+November 30, 2023 advancing straight to January 1, 2024. With the fix, the
+original pinned-lineage build passes **87 native tests**, including all 12 date
+cases and the existing persistence cases. Full logs and executable SHA-256 are in
+[`cmos-calendar-20260922.txt`](../tests/agent/evidence/cmos-calendar-20260922.txt).
+This verifies the listed callback boundaries with host synchronization disabled;
+it does not exercise PIC event dispatch, guest `IN/OUT` instructions, complete
+machine restart, or guest instruction timing parity.
+
+An independent review requested stronger negative-run provenance. The evidence
+now records the old source and unchanged test commit identities, SHA-256 values
+for both source files and the negative executable, the exact isolated build
+launcher, its successful build result, the failing native run, and the restored
+positive run (87 tests). Reconstruct the negative case with `src/hardware/cmos.cpp`
+from `50fe270` and `tests/agent/cmos_state_tests.inc` from `af7b85a`; the former
+contains the two original strict comparisons, the latter the 12-case test.
 
 ## Broader restartability audit
 
@@ -104,3 +130,22 @@ The source-only [remaining state audit](PERSISTENT_STATE_DEBT.md) records the
 entire omitted CPU NMI triplet and open-file pending timestamp/I/O state, with
 exact source locations and proposed native/cold-process probes. These remain
 open debt; the CMOS tests and matching disk bytes do not prove them covered.
+
+The calendar follow-up was then prepared separately on CMOS PR head `256c2cb`.
+Its production CMOS source and tests match reviewed `f517817` byte-for-byte.
+The fresh isolated build passes **86 native tests** (one local watcher test is
+absent from the remote lineage); the appended evidence records its executable
+hash and full output. This preparation is local; no hosted CI or merge is claimed.
+
+On 2026-09-26 the calendar branch was combined with the pinned debugger
+integration base `f763b7b61`. That base's `cmos.cpp` blob is exactly
+`c3b68be49a99130ed101955ad8433fa6e5fb52a9`, the old source used in the
+recorded failing control. The combined tree's calendar test blob is exactly
+`8ef5aca2eb7808940a513bec7e38e67c99eebeb9`, the test used there.
+An Insiders MSVC `Agent Debug SDL2` build succeeded with zero errors and all
+**87 native tests passed**. The
+[compressed full build log](../tests/agent/evidence/cmos-calendar-build-20260926.log.gz)
+and [test transcript](../tests/agent/evidence/cmos-calendar-integration-20260926.txt)
+retain the executable and source hashes and complete test output.
+This trace records the local combined-tree result; hosted CI is tracked on
+[PR #4](https://github.com/janrysavy/dosbox-x-mpc/pull/4).

@@ -185,4 +185,46 @@ TEST_F(CmosState, RestoresBcdAndTwelveHourWriteInterpretation) {
     EXPECT_TRUE(cmos.bcd);
     EXPECT_TRUE(cmos.ampm);
 }
+TEST_F(CmosState, CalendarKeepsLastDayAndDecemberBeforeRollingOver) {
+    struct CalendarCase {
+        uint16_t year;
+        uint8_t month, day;
+        uint16_t next_year;
+        uint8_t next_month, next_day;
+    };
+    const CalendarCase cases[] = {
+        {2000, 2, 28, 2000, 2, 29}, // Gregorian century leap year.
+        {2000, 2, 29, 2000, 3, 1},
+        {1900, 2, 27, 1900, 2, 28}, // Century exception: not a leap year.
+        {1900, 2, 28, 1900, 3, 1},
+        {2024, 2, 28, 2024, 2, 29}, // Ordinary leap year.
+        {2023, 4, 29, 2023, 4, 30},
+        {2023, 4, 30, 2023, 5, 1},
+        {2023, 1, 30, 2023, 1, 31},
+        {2023, 1, 31, 2023, 2, 1},
+        {2023, 11, 30, 2023, 12, 1},
+        {2023, 12, 30, 2023, 12, 31},
+        {2023, 12, 31, 2024, 1, 1},
+    };
+    for (const auto& test : cases) {
+        SCOPED_TRACE(::testing::Message() << test.year << "-"
+                     << unsigned(test.month) << "-" << unsigned(test.day));
+        SetClock();
+        Write(0x32, static_cast<uint8_t>(test.year / 100));
+        Write(0x09, static_cast<uint8_t>(test.year % 100));
+        Write(0x08, test.month);
+        Write(0x07, test.day);
+        Write(0x06, 7); // Verify weekday rollover independently of month.
+        Write(0x0b, 0x06); // Binary/24-hour, unlocked.
+        TimerBoundary();
+        EXPECT_EQ(test.next_year / 100, Read(0x32));
+        EXPECT_EQ(test.next_year % 100, Read(0x09));
+        EXPECT_EQ(test.next_month, Read(0x08));
+        EXPECT_EQ(test.next_day, Read(0x07));
+        EXPECT_EQ(1, Read(0x06));
+        EXPECT_EQ(0, Read(0x04));
+        EXPECT_EQ(0, Read(0x02));
+        EXPECT_EQ(0, Read(0x00));
+    }
+}
 } // namespace
