@@ -1,0 +1,27 @@
+name: Agent Linux regression build
+
+on:
+  pull_request:
+    branches: [ai-re-agent]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y autoconf automake gcc g++ make pkg-config nasm libncurses-dev libfreetype-dev libxkbfile-dev libxrandr-dev fluidsynth libfluidsynth-dev libpcap-dev libslirp-dev libsdl-net1.2-dev libsdl2-net-dev libglu1-mesa-dev freeglut3-dev mesa-common-dev libpng-dev libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libavdevice-dev libavcodec-extra
+          mkdir -p src/bin
+      - name: Build Linux SDL2
+        run: |
+          ./build-debug-sdl2 --enable-avcodec
+          cp src/dosbox-x src/bin/dosbox-x-sdl2
+      - name: Run built-in tests
+        run: src/bin/dosbox-x-sdl2 -tests
