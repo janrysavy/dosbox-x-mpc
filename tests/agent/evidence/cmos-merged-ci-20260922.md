@@ -8,8 +8,8 @@ of complete restartable emulator snapshots. Remaining debt is in
 
 | PR | Tested head | Retained PR workflows | Child jobs | Merge |
 |---|---|---|---|---|
-| [3](https://github.com/janrysavy/dosbox-x-mpc/pull/3) | `dfb8cdb2e354d3c977a9c75a6e35ab88e7817ca2` | 11/11 success | 28/28 success | `44424e3ebe8ebc0c71bc1e060710979ebfb814b0` |
-| [1](https://github.com/janrysavy/dosbox-x-mpc/pull/1) | `b7414809f4b810d6a4771a9f68f9baa2d4279ec8` | 12/12 success | 29/29 success | `a5f3c4e489a5cae7c10464adb6d85f218da589ac` |
+| [3](https://github.com/janrysavy/dosbox-x-mcp/pull/3) | `dfb8cdb2e354d3c977a9c75a6e35ab88e7817ca2` | 11/11 success | 28/28 success | `44424e3ebe8ebc0c71bc1e060710979ebfb814b0` |
+| [1](https://github.com/janrysavy/dosbox-x-mcp/pull/1) | `b7414809f4b810d6a4771a9f68f9baa2d4279ec8` | 12/12 success | 29/29 success | `a5f3c4e489a5cae7c10464adb6d85f218da589ac` |
 
 The audit selected `pull_request` runs at the exact head SHA and checked every
 child job through the Actions jobs API. Zero failed or pending children remained
@@ -20,12 +20,12 @@ ancestor of the PR3 merge.
 
 Selected final-head logs:
 
-- [PR3 debugger matrix and explicit MSVC fallback probe](https://github.com/janrysavy/dosbox-x-mpc/actions/runs/35743355056)
-- [PR3 full MinGW builds including Windows 9x](https://github.com/janrysavy/dosbox-x-mpc/actions/runs/35743355012)
-- [PR3 final MinGW64 workflow](https://github.com/janrysavy/dosbox-x-mpc/actions/runs/35743354977)
-- [CMOS native regression: 85 tests passed](https://github.com/janrysavy/dosbox-x-mpc/actions/runs/35743357729)
-- [CMOS full MinGW builds including Windows 9x](https://github.com/janrysavy/dosbox-x-mpc/actions/runs/35743357593)
-- [CMOS final installer packaging](https://github.com/janrysavy/dosbox-x-mpc/actions/runs/35743357577)
+- [PR3 debugger matrix and explicit MSVC fallback probe](https://github.com/janrysavy/dosbox-x-mcp/actions/runs/35743355056)
+- [PR3 full MinGW builds including Windows 9x](https://github.com/janrysavy/dosbox-x-mcp/actions/runs/35743355012)
+- [PR3 final MinGW64 workflow](https://github.com/janrysavy/dosbox-x-mcp/actions/runs/35743354977)
+- [CMOS native regression: 85 tests passed](https://github.com/janrysavy/dosbox-x-mcp/actions/runs/35743357729)
+- [CMOS full MinGW builds including Windows 9x](https://github.com/janrysavy/dosbox-x-mcp/actions/runs/35743357593)
+- [CMOS final installer packaging](https://github.com/janrysavy/dosbox-x-mcp/actions/runs/35743357577)
 
 Independent read-only reviews were resolved before merge. The final fallback/CI
 review reported no findings; actual MSVC positive and old-source negative-control

@@ -28,7 +28,7 @@ does not validate parameter/result schemas or prose semantics; source review and
 are still required for those.
 
 The patched source is published as the public true DOSBox-X fork
-[`janrysavy/dosbox-x-mpc`](https://github.com/janrysavy/dosbox-x-mpc), with
+[`janrysavy/dosbox-x-mcp`](https://github.com/janrysavy/dosbox-x-mcp), with
 `ai-re-agent` as its default branch. The repository name does not change the protocol:
 the implemented service remains the JSON-RPC surface documented here.
 
