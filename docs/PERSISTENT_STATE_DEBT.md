@@ -77,7 +77,7 @@ has been run. `src/hardware/keyboard.cpp:149-154` holds six independent left/rig
 Ctrl, Alt and Shift booleans. `SerializeKeyboard` at lines 2977-2997 saves
 `keyb.key_pressed` but none of those six booleans. Its inherited POD restore does
 not replay the key handlers. `KEYBOARD_IsKeyPressed` at line 1940 reads only the
-saved array; agent `GetInputState` (`src/agent/debugger/debugger_adapter.cpp:631`)
+saved array; agent `GetInputState` (`src/agent/debugger/debugger_adapter.cpp:632-647`)
 uses that accessor. A correct-looking held-key response alone therefore cannot
 prove the scancode generator's modifier state was restored.
 
