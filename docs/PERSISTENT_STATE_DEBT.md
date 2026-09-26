@@ -97,3 +97,8 @@ old restore versus E0/Ctrl-Break uninterrupted, because the release cleared the
 unsaved flag. Restore the full fixture and omitted flags between cases. A fix
 needs a negative control against the prior serializer and equivalent coverage
 for the other modifier branches; no success is claimed here.
+
+Rechecked against pinned debugger integration `f763b7b61` on 2026-09-26:
+`SerializeKeyboard` still registers `keyb.key_pressed` but none of the six
+modifier booleans, while `KBD_pause` still reads the separate Ctrl flags.
+This remains a source-backed gap; the proposed continuation probe has not run.
