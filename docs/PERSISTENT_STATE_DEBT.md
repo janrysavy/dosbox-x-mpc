@@ -88,15 +88,22 @@ Alt/Ctrl/Shift. `KEYBOARD_AddKey` at lines 1911-1937 first updates the array and
 then dispatches to scan-set 1 when controller translation is enabled (or scan
 set 1 is selected); the modifier handlers update the separate flags.
 
-Proposed native continuation probe (unrun): configure translated scan-set 1,
-press left Ctrl through `KEYBOARD_AddKey`, drain its initial scancode, and capture
-all state. Record an uninterrupted Pause press's bytes. Release Ctrl, restore,
-assert the reported held-key array, and repeat the same Pause press; compare the
-actual queued/scanned bytes. The source predicts an E1/Pause sequence after the
-old restore versus E0/Ctrl-Break uninterrupted, because the release cleared the
-unsaved flag. Restore the full fixture and omitted flags between cases. A fix
-needs a negative control against the prior serializer and equivalent coverage
-for the other modifier branches; no success is claimed here.
+Proposed native serializer probe (unrun): construct independently isolated,
+identical translated scan-set 1 keyboard fixtures, with the output buffer,
+pending key/8042 response, auxiliary state, scan-set selection, command state,
+and repeat timing explicitly normalized. Press left Ctrl through
+`KEYBOARD_AddKey` and drain its make byte before saving the keyboard payload.
+In one fixture, press Pause uninterrupted and inspect the resulting scancode
+bytes through a native queue seam or port 0x60. In the other, release Ctrl and
+drain its break byte, then load the saved payload and press Pause; inspect the
+same bytes. First verify the saved `key_pressed` entry is true while the
+separate Ctrl flag is false. Reject a comparison if any other unregistered
+keyboard state differs. The source predicts E1/Pause after current restore
+versus E0/Ctrl-Break uninterrupted. `GetInputState` reports held keys only;
+`ApplyKeyboardInput` does not expose the bytes. A fix needs a failing negative
+control against the prior serializer and equivalent coverage for the other
+modifier branches. This probe would establish keyboard serializer behavior,
+not yet full machine restart parity; no success is claimed here.
 
 Rechecked against pinned debugger integration `f763b7b61` on 2026-09-26:
 `SerializeKeyboard` still registers `keyb.key_pressed` but none of the six
