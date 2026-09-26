@@ -3,10 +3,10 @@
 This public DOSBox-X fork is maintained on Jan Ryšavý's GitHub account to support
 AI-driven dynamic reverse engineering of DOS software:
 
-- fork: <https://github.com/janrysavy/dosbox-x-mpc>
+- fork: <https://github.com/janrysavy/dosbox-x-mcp>
 - upstream: <https://github.com/joncampbell123/dosbox-x>
 - project branch: `ai-re-agent`
-- published under this name on the `janrysavy` account on 2026-09-18
+- current repository slug established on the `janrysavy` account on 2026-09-26
 
 The repository remains a true GitHub fork of upstream DOSBox-X. The requested public
 repository identity was established by renaming the account's existing fork, which
@@ -29,7 +29,7 @@ inspection and guarded mutation, atomic video snapshots, DOS loader maps, checkp
 authentic keyboard and joystick input, bounded CPU, hardware, and DOS-file traces,
 emulated-time execution bounds, and structured target-exit reporting.
 
-The repository name is `dosbox-x-mpc`. The current service is **not** a Model Context
+The repository name is `dosbox-x-mcp`. The current service is **not** a Model Context
 Protocol (MCP) server and does not implement `tools/list`; it is custom JSON-RPC. A
 future MCP adapter should remain thin and delegate debugger state and semantics to this
 service.

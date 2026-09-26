@@ -1,5 +1,5 @@
 > [!IMPORTANT]
-> This repository is the [`janrysavy/dosbox-x-mpc`](https://github.com/janrysavy/dosbox-x-mpc)
+> This repository is the [`janrysavy/dosbox-x-mcp`](https://github.com/janrysavy/dosbox-x-mcp)
 > fork focused on AI-driven reverse engineering of DOS software. Its default
 > `ai-re-agent` branch adds a supervised JSON-RPC debugger agent.
 >
