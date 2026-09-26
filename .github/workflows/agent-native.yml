@@ -2,7 +2,7 @@ name: Agent native regression tests
 
 on:
   pull_request:
-    branches: [ai-re-agent]
+    branches: [codex/cmos-local-integration]
   workflow_dispatch:
 
 permissions:
