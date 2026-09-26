@@ -2,7 +2,8 @@ CMOS calendar integration, Windows x64, 2026-09-26
 
 Combined lineage: origin/codex/cmos-local-integration f763b7b61 and local codex/cmos-calendar-pr 2fc0a7991 (merge prepared before this capture).
 Build: VS 18 Insiders MSBuild, Agent Debug SDL2|x64, TrackFileAccess=false, after vcvars64.bat.
-Fresh build log: re/_build/logs/calendar-build-20260926.log (repository-local ignored build log).
+Fresh build log: cmos-calendar-build-20260926.log.gz (complete compressed MSBuild log from this run).
+Uncompressed build log: 932339 bytes, SHA-256 986bd5d1e94dc563bc4301fadae16a09a491a39615b419dbfb9f129fbc001593.
 Build verdict: Build succeeded; 1136 warnings; 0 errors; elapsed 00:00:30.06.
 Fixture: tests/agent/build_fixture.ps1 -UseClang (exit 0).
 Test command: python tests/agent/run_gtests.py --timeout 120, with GTEST_FILTER unset (exit 0).
