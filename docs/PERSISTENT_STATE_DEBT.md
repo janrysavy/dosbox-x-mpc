@@ -96,7 +96,7 @@ and repeat timing explicitly normalized. Press left Ctrl through
 In one fixture, press Pause uninterrupted and inspect the resulting scancode
 bytes through a native queue seam or port 0x60. In the other, release Ctrl and
 drain its break byte, then load the saved payload and press Pause; inspect the
-same bytes. First verify the saved `key_pressed` entry is true while the
+same bytes. After loading, verify `key_pressed[KBD_leftctrl]` is true while the
 separate Ctrl flag is false. Reject a comparison if any other unregistered
 keyboard state differs. The source predicts E1/Pause after current restore
 versus E0/Ctrl-Break uninterrupted. `GetInputState` reports held keys only;
