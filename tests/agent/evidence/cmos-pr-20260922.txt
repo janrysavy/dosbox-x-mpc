@@ -754,3 +754,276 @@ Command: python tests/agent/run_gtests.py --exe 'bin/x64/Agent Debug SDL2/dosbox
 [==========] 85 tests from 21 test suites ran. (473 ms total)
 [  PASSED  ] 85 tests.
 LOG: Unit test completed: success
+
+Combined Win9x stub merge validation (256c2cb + ff3ee37), 2026-09-22
+Isolated Agent Debug SDL2 x64 build: EXITCODE=0, 0 errors, 27.42 seconds.
+Executable SHA256: 5ce3ca9bcfc491beeb4ce8b9d1fdfa827ebc7f07f1fc266e9b0a637594bbf788
+Command: python tests/agent/run_gtests.py --exe "bin/x64/Agent Debug SDL2/dosbox-x.exe" --log tests/agent/cmos-pr-stub-tests.log --timeout 120
+[mcp-trace] DEBUG_Init reading mcp_stdio property
+[mcp-trace] DEBUG_Init mcp_stdio=0 mcp_server_port=0
+[==========] Running 85 tests from 21 test suites.
+[----------] Global test environment set-up.
+[----------] 26 tests from DOS_FilesTest
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Basic_Failures
+[       OK ] DOS_FilesTest.DOS_MakeName_Basic_Failures (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Z_AUTOEXEC_BAT_exists
+[       OK ] DOS_FilesTest.DOS_MakeName_Z_AUTOEXEC_BAT_exists (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Drive_Index_Set_On_Failure
+[       OK ] DOS_FilesTest.DOS_MakeName_Drive_Index_Set_On_Failure (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Uppercase
+[       OK ] DOS_FilesTest.DOS_MakeName_Uppercase (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_CONVERTS_FWD_SLASH
+[       OK ] DOS_FilesTest.DOS_MakeName_CONVERTS_FWD_SLASH (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_STRIP_SPACE
+[       OK ] DOS_FilesTest.DOS_MakeName_STRIP_SPACE (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Dir_Handling
+[       OK ] DOS_FilesTest.DOS_MakeName_Dir_Handling (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Assumes_Current_Drive_And_Dir
+[       OK ] DOS_FilesTest.DOS_MakeName_Assumes_Current_Drive_And_Dir (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Illegal_Chars_After_8_3
+[       OK ] DOS_FilesTest.DOS_MakeName_Illegal_Chars_After_8_3 (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_DOS_PATHLENGTH_checks
+[       OK ] DOS_FilesTest.DOS_MakeName_DOS_PATHLENGTH_checks (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Enforce_8_3
+[       OK ] DOS_FilesTest.DOS_MakeName_Enforce_8_3 (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Dot_Handling
+[       OK ] DOS_FilesTest.DOS_MakeName_Dot_Handling (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_No_SlashSlash
+[       OK ] DOS_FilesTest.DOS_MakeName_No_SlashSlash (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_GoodChars
+[       OK ] DOS_FilesTest.DOS_MakeName_GoodChars (14 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_DBCS
+[       OK ] DOS_FilesTest.DOS_MakeName_DBCS (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_MakeName_Colon_Illegal_Paths
+[       OK ] DOS_FilesTest.DOS_MakeName_Colon_Illegal_Paths (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_Ending_Slash
+[       OK ] DOS_FilesTest.DOS_FindFirst_Ending_Slash (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_Rejects_Invalid_Names
+[       OK ] DOS_FilesTest.DOS_FindFirst_Rejects_Invalid_Names (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_FindVolume
+[       OK ] DOS_FilesTest.DOS_FindFirst_FindVolume (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_FindDevice
+[       OK ] DOS_FilesTest.DOS_FindFirst_FindDevice (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_FindFile
+[       OK ] DOS_FilesTest.DOS_FindFirst_FindFile (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_FindFirst_FindFile_Nonexistant
+[       OK ] DOS_FilesTest.DOS_FindFirst_FindFile_Nonexistant (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_ChangeDir_Rejects_File_As_Directory
+[       OK ] DOS_FilesTest.DOS_ChangeDir_Rejects_File_As_Directory (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_DTAExtendName_Mutates_Input
+[       OK ] DOS_FilesTest.DOS_DTAExtendName_Mutates_Input (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_DTAExtendName_Space_Pads
+[       OK ] DOS_FilesTest.DOS_DTAExtendName_Space_Pads (0 ms)
+[ RUN      ] DOS_FilesTest.DOS_DTAExtendName_Enforces_8_3
+[       OK ] DOS_FilesTest.DOS_DTAExtendName_Enforces_8_3 (0 ms)
+[----------] 26 tests from DOS_FilesTest (15 ms total)
+
+[----------] 4 tests from WildFileCmp
+[ RUN      ] WildFileCmp.ExactMatch
+[       OK ] WildFileCmp.ExactMatch (0 ms)
+[ RUN      ] WildFileCmp.WildDotWild
+[       OK ] WildFileCmp.WildDotWild (0 ms)
+[ RUN      ] WildFileCmp.WildcardNoExt
+[       OK ] WildFileCmp.WildcardNoExt (0 ms)
+[ RUN      ] WildFileCmp.QuestionMark
+[       OK ] WildFileCmp.QuestionMark (0 ms)
+[----------] 4 tests from WildFileCmp (0 ms total)
+
+[----------] 1 test from LWildFileCmp
+[ RUN      ] LWildFileCmp.LFNCompare
+[       OK ] LWildFileCmp.LFNCompare (0 ms)
+[----------] 1 test from LWildFileCmp (0 ms total)
+
+[----------] 12 tests from Set_Label
+[ RUN      ] Set_Label.Daggerfall
+[       OK ] Set_Label.Daggerfall (0 ms)
+[ RUN      ] Set_Label.DaggerfallCD
+[       OK ] Set_Label.DaggerfallCD (0 ms)
+[ RUN      ] Set_Label.LongerThan11
+[       OK ] Set_Label.LongerThan11 (0 ms)
+[ RUN      ] Set_Label.LongerThan11CD
+[       OK ] Set_Label.LongerThan11CD (0 ms)
+[ RUN      ] Set_Label.ShorterThan8
+[       OK ] Set_Label.ShorterThan8 (0 ms)
+[ RUN      ] Set_Label.ShorterThan8CD
+[       OK ] Set_Label.ShorterThan8CD (0 ms)
+[ RUN      ] Set_Label.EqualTo8
+[       OK ] Set_Label.EqualTo8 (0 ms)
+[ RUN      ] Set_Label.EqualTo8CD
+[       OK ] Set_Label.EqualTo8CD (0 ms)
+[ RUN      ] Set_Label.StripEndingDot
+[       OK ] Set_Label.StripEndingDot (0 ms)
+[ RUN      ] Set_Label.NoStripEndingDotCD
+[       OK ] Set_Label.NoStripEndingDotCD (0 ms)
+[ RUN      ] Set_Label.InvalidCharsEndingDot
+[       OK ] Set_Label.InvalidCharsEndingDot (0 ms)
+[ RUN      ] Set_Label.InvalidCharsEndingDotCD
+[       OK ] Set_Label.InvalidCharsEndingDotCD (0 ms)
+[----------] 12 tests from Set_Label (0 ms total)
+
+[----------] 9 tests from DOS_Shell_CMDSTest
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Separating_Chars
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Separating_Chars (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_All_Cmds_Do_Valid_Execute
+[       OK ] DOS_Shell_CMDSTest.DoCommand_All_Cmds_Do_Valid_Execute (3 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Trim_Space
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Trim_Space (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Splits_Cmd_and_Args
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Splits_Cmd_and_Args (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Doesnt_Split_Colon
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Doesnt_Split_Colon (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Nospace_Dot_Handling
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Nospace_Dot_Handling (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.DoCommand_Nospace_Slash_Handling
+[       OK ] DOS_Shell_CMDSTest.DoCommand_Nospace_Slash_Handling (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.CMD_ECHO_off_on
+[       OK ] DOS_Shell_CMDSTest.CMD_ECHO_off_on (0 ms)
+[ RUN      ] DOS_Shell_CMDSTest.CMD_ECHO_space_handling
+[       OK ] DOS_Shell_CMDSTest.CMD_ECHO_space_handling (0 ms)
+[----------] 9 tests from DOS_Shell_CMDSTest (5 ms total)
+
+[----------] 1 test from DOS_Shell_REDIRTest
+[ RUN      ] DOS_Shell_REDIRTest.CMD_Redirection
+[       OK ] DOS_Shell_REDIRTest.CMD_Redirection (0 ms)
+[----------] 1 test from DOS_Shell_REDIRTest (0 ms total)
+
+[----------] 2 tests from AgentConfig
+[ RUN      ] AgentConfig.LoadsOnlyTheExplicitConfigFile
+[       OK ] AgentConfig.LoadsOnlyTheExplicitConfigFile (0 ms)
+[ RUN      ] AgentConfig.StartupLogContainsResolvedLimits
+[       OK ] AgentConfig.StartupLogContainsResolvedLimits (0 ms)
+[----------] 2 tests from AgentConfig (0 ms total)
+
+[----------] 3 tests from AgentBridge
+[ RUN      ] AgentBridge.RejectsPumpFromNonEmulationThread
+[       OK ] AgentBridge.RejectsPumpFromNonEmulationThread (0 ms)
+[ RUN      ] AgentBridge.PreservesSubmissionOrderUnderConcurrentLoad
+[       OK ] AgentBridge.PreservesSubmissionOrderUnderConcurrentLoad (3 ms)
+[ RUN      ] AgentBridge.DelaysRetriesAndDropsPendingCommandsOnShutdown
+[       OK ] AgentBridge.DelaysRetriesAndDropsPendingCommandsOnShutdown (51 ms)
+[----------] 3 tests from AgentBridge (55 ms total)
+
+[----------] 4 tests from AgentProtocol
+[ RUN      ] AgentProtocol.RejectsInvalidRequestsAndOversizedMessages
+[       OK ] AgentProtocol.RejectsInvalidRequestsAndOversizedMessages (0 ms)
+[ RUN      ] AgentProtocol.ReportsBuildCapabilitiesAndLimits
+[       OK ] AgentProtocol.ReportsBuildCapabilitiesAndLimits (6 ms)
+[ RUN      ] AgentProtocol.ValidatesExactWatchpointKindsAndLengthsBeforeDispatch
+[       OK ] AgentProtocol.ValidatesExactWatchpointKindsAndLengthsBeforeDispatch (2 ms)
+[ RUN      ] AgentProtocol.CreatesAndListsTypedSoftwareInterruptBreakpoints
+[       OK ] AgentProtocol.CreatesAndListsTypedSoftwareInterruptBreakpoints (2 ms)
+[----------] 4 tests from AgentProtocol (12 ms total)
+
+[----------] 1 test from AgentInput
+[ RUN      ] AgentInput.DeliversOrderedDeviceEventsAndReportsExactStateWhileRunning
+[       OK ] AgentInput.DeliversOrderedDeviceEventsAndReportsExactStateWhileRunning (3 ms)
+[----------] 1 test from AgentInput (3 ms total)
+
+[----------] 2 tests from AgentRunUntil
+[ RUN      ] AgentRunUntil.InstallsResumesStopsAndRemovesOnePrivatePredicate
+[       OK ] AgentRunUntil.InstallsResumesStopsAndRemovesOnePrivatePredicate (2 ms)
+[ RUN      ] AgentRunUntil.StopsAtBoundedEmulatedTimeAndReportsOvershoot
+[       OK ] AgentRunUntil.StopsAtBoundedEmulatedTimeAndReportsOvershoot (2 ms)
+[----------] 2 tests from AgentRunUntil (5 ms total)
+
+[----------] 1 test from AgentCheckpoint
+[ RUN      ] AgentCheckpoint.CreatesRestoresListsDeletesAndInvalidatesOldResponses
+[       OK ] AgentCheckpoint.CreatesRestoresListsDeletesAndInvalidatesOldResponses (3 ms)
+[----------] 1 test from AgentCheckpoint (3 ms total)
+
+[----------] 1 test from AgentTrace
+[ RUN      ] AgentTrace.PreservesOrderedTypedEffectsThroughPaging
+[       OK ] AgentTrace.PreservesOrderedTypedEffectsThroughPaging (0 ms)
+[----------] 1 test from AgentTrace (0 ms total)
+
+[----------] 1 test from AgentHardwareTrace
+[ RUN      ] AgentHardwareTrace.BoundsFiltersPagesAndExpiresOverwrittenCursors
+[       OK ] AgentHardwareTrace.BoundsFiltersPagesAndExpiresOverwrittenCursors (0 ms)
+[----------] 1 test from AgentHardwareTrace (0 ms total)
+
+[----------] 2 tests from AgentDosFileTrace
+[ RUN      ] AgentDosFileTrace.FiltersPspHashesPayloadAndBoundsPages
+[       OK ] AgentDosFileTrace.FiltersPspHashesPayloadAndBoundsPages (0 ms)
+[ RUN      ] AgentDosFileTrace.RpcStartReadAndStopUseTargetPsp
+[       OK ] AgentDosFileTrace.RpcStartReadAndStopUseTargetPsp (1 ms)
+[----------] 2 tests from AgentDosFileTrace (1 ms total)
+
+[----------] 1 test from AgentDos
+[ RUN      ] AgentDos.ReturnsLoaderMetadataAndTypedMcbOwnership
+[       OK ] AgentDos.ReturnsLoaderMetadataAndTypedMcbOwnership (1 ms)
+[----------] 1 test from AgentDos (1 ms total)
+
+[----------] 1 test from AgentVideo
+[ RUN      ] AgentVideo.ReturnsOneAtomicTypedSnapshotAndRejectsRunningTargets
+[       OK ] AgentVideo.ReturnsOneAtomicTypedSnapshotAndRejectsRunningTargets (3 ms)
+[----------] 1 test from AgentVideo (4 ms total)
+
+[----------] 1 test from AgentLifecycle
+[ RUN      ] AgentLifecycle.StopsAndRestartsTheSameServer
+[       OK ] AgentLifecycle.StopsAndRestartsTheSameServer (0 ms)
+[----------] 1 test from AgentLifecycle (0 ms total)
+
+[----------] 6 tests from AgentSession
+[ RUN      ] AgentSession.EnforcesSingleSessionAndStartupStopState
+[       OK ] AgentSession.EnforcesSingleSessionAndStartupStopState (1 ms)
+[ RUN      ] AgentSession.ReusesCompletedStartRequestAndRejectsConflicts
+[       OK ] AgentSession.ReusesCompletedStartRequestAndRejectsConflicts (1 ms)
+[ RUN      ] AgentSession.BlocksStateOperationsWhileRunningAndWaitsForPause
+[       OK ] AgentSession.BlocksStateOperationsWhileRunningAndWaitsForPause (4 ms)
+[ RUN      ] AgentSession.ReportsOnlyTheTargetPspAsAProgramExit
+[       OK ] AgentSession.ReportsOnlyTheTargetPspAsAProgramExit (1 ms)
+[ RUN      ] AgentSession.LabelsControllerTerminationAsSessionStop
+[       OK ] AgentSession.LabelsControllerTerminationAsSessionStop (1 ms)
+[ RUN      ] AgentSession.ReusesCompletedRequestResultsAndRejectsConflicts
+[       OK ] AgentSession.ReusesCompletedRequestResultsAndRejectsConflicts (1 ms)
+[----------] 6 tests from AgentSession (10 ms total)
+
+[----------] 2 tests from DebuggerOutputParser
+[ RUN      ] DebuggerOutputParser.RejectsMissingRegisterFieldsWithoutPartialResult
+[       OK ] DebuggerOutputParser.RejectsMissingRegisterFieldsWithoutPartialResult (0 ms)
+[ RUN      ] DebuggerOutputParser.RejectsAbnormalSpacingWithoutPartialResult
+[       OK ] DebuggerOutputParser.RejectsAbnormalSpacingWithoutPartialResult (0 ms)
+[----------] 2 tests from DebuggerOutputParser (0 ms total)
+
+[----------] 4 tests from CmosState
+[ RUN      ] CmosState.RestoresClockModeAlarmAndPendingSync
+[       OK ] CmosState.RestoresClockModeAlarmAndPendingSync (80 ms)
+[ RUN      ] CmosState.LockedTimerDoesNotAdvanceAfterRestore
+[       OK ] CmosState.LockedTimerDoesNotAdvanceAfterRestore (78 ms)
+[ RUN      ] CmosState.RestoredMidnightMatchesUninterruptedClockAndAlarm
+[       OK ] CmosState.RestoredMidnightMatchesUninterruptedClockAndAlarm (79 ms)
+[ RUN      ] CmosState.RestoresBcdAndTwelveHourWriteInterpretation
+[       OK ] CmosState.RestoresBcdAndTwelveHourWriteInterpretation (80 ms)
+[----------] 4 tests from CmosState (319 ms total)
+
+[----------] Global test environment tear-down
+[==========] 85 tests from 21 test suites ran. (441 ms total)
+[  PASSED  ] 85 tests.
+LOG: Unit test completed: success
+
+Combined-tree disabled transport probe:
+BUILD debug-no-network: ['C:/Program Files/LLVM/bin/clang++.exe', '-std=c++17', '-I', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\debug-no-network', '-I', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\src\\debug', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\src\\debug\\debug_mcp.cpp', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\tests\\agent\\mcp_disabled_link.cpp', '-o', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\debug-no-network\\mcp-disabled-link.exe']
+PASS debug-no-network: production fallback linked and ran
+BUILD release-no-network: ['C:/Program Files/LLVM/bin/clang++.exe', '-std=c++17', '-I', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\release-no-network', '-I', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\src\\debug', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\src\\debug\\debug_mcp.cpp', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\tests\\agent\\mcp_disabled_link.cpp', '-o', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\release-no-network\\mcp-disabled-link.exe']
+PASS release-no-network: production fallback linked and ran
+BUILD release-with-network: ['C:/Program Files/LLVM/bin/clang++.exe', '-std=c++17', '-I', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\release-with-network', '-I', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\src\\debug', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\src\\debug\\debug_mcp.cpp', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\tests\\agent\\mcp_disabled_link.cpp', '-o', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\release-with-network\\mcp-disabled-link.exe']
+PASS release-with-network: production fallback linked and ran
+
+MSVC probe CI follow-up merge (606f21c + dfb8cdb), 2026-09-22
+Production src/ tree is byte-identical to the combined 85-test build above (git diff 606f21c -- src is empty).
+New probe executed after loading VS18 Insiders vcvars64 with --compiler cl:
+BUILD debug-on-network-off: ['cl', '/nologo', '/std:c++17', '/EHsc', '/ID:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\debug-on-network-off', '/ID:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\src\\debug', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\src\\debug\\debug_mcp.cpp', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\tests\\agent\\mcp_disabled_link.cpp', '/Fe:D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\debug-on-network-off\\mcp-disabled-link.exe', '/FoD:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\debug-on-network-off\\']
+debug_mcp.cpp
+mcp_disabled_link.cpp
+Generating Code...
+PASS debug-on-network-off: production fallback linked and ran
+BUILD debug-off-network-off: ['cl', '/nologo', '/std:c++17', '/EHsc', '/ID:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\debug-off-network-off', '/ID:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\src\\debug', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\src\\debug\\debug_mcp.cpp', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\tests\\agent\\mcp_disabled_link.cpp', '/Fe:D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\debug-off-network-off\\mcp-disabled-link.exe', '/FoD:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\debug-off-network-off\\']
+debug_mcp.cpp
+mcp_disabled_link.cpp
+Generating Code...
+PASS debug-off-network-off: production fallback linked and ran
+BUILD debug-off-network-on: ['cl', '/nologo', '/std:c++17', '/EHsc', '/ID:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\debug-off-network-on', '/ID:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\src\\debug', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\src\\debug\\debug_mcp.cpp', 'D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\tests\\agent\\mcp_disabled_link.cpp', '/Fe:D:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\debug-off-network-on\\mcp-disabled-link.exe', '/FoD:\\Work\\Downloads\\pyro221_next\\re\\_build\\worktrees\\dosbox-cmos-pr\\_build\\mcp-disabled-link\\debug-off-network-on\\']
+debug_mcp.cpp
+mcp_disabled_link.cpp
+Generating Code...
+PASS debug-off-network-on: production fallback linked and ran

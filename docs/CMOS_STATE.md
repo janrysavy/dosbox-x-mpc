@@ -108,8 +108,9 @@ year, 30/31-day months, entry into December, and year rollover. It also verifies
 weekday rollover and zero hours/minutes/seconds at midnight.
 
 Before the fix, the native test failed for seven of those dates, including
-November 30, 2023 advancing straight to January 1, 2024. With the fix, the original pinned-lineage build passes
-**87 native tests**, including all 12 date cases and the existing persistence
+November 30, 2023 advancing straight to January 1, 2024. With the fix, the
+original pinned-lineage build passes **87 native tests**, including all 12 date
+cases and the existing persistence
 cases. Full logs and executable SHA-256 are in
 [`cmos-calendar-20260922.txt`](../tests/agent/evidence/cmos-calendar-20260922.txt).
 This verifies the listed calendar boundaries with host synchronization disabled;
@@ -135,3 +136,14 @@ Its production CMOS source and tests match reviewed `f517817` byte-for-byte.
 The fresh isolated build passes **86 native tests** (one local watcher test is
 absent from the remote lineage); the appended evidence records its executable
 hash and full output. This preparation is local; no hosted CI or merge is claimed.
+
+On 2026-09-26 the calendar branch was combined with the pinned debugger
+integration base `f763b7b61`. That base's `cmos.cpp` blob is exactly
+`c3b68be49a99130ed101955ad8433fa6e5fb52a9`, the old source used in the
+recorded failing control. The combined tree's calendar test blob is exactly
+`8ef5aca2eb7808940a513bec7e38e67c99eebeb9`, the test used there.
+An Insiders MSVC `Agent Debug SDL2` build succeeded with zero errors and all
+**87 native tests passed**. The executable and source hashes, build summary,
+and complete test output are retained in
+[`cmos-calendar-integration-20260926.txt`](../tests/agent/evidence/cmos-calendar-integration-20260926.txt).
+This trace records the local combined-tree result; hosted CI is tracked on the PR.
