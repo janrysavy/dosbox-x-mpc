@@ -148,4 +148,4 @@ An Insiders MSVC `Agent Debug SDL2` build succeeded with zero errors and all
 and [test transcript](../tests/agent/evidence/cmos-calendar-integration-20260926.txt)
 retain the executable and source hashes and complete test output.
 This trace records the local combined-tree result; hosted CI is tracked on
-[PR #4](https://github.com/janrysavy/dosbox-x-mpc/pull/4).
+[PR #4](https://github.com/janrysavy/dosbox-x-mcp/pull/4).
