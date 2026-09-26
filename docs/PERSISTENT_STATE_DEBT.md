@@ -69,3 +69,43 @@ File checksums alone do not capture pending I/O, metadata, open-file policy or
 missing/unlinked files. Forcing `LocalFile::Flush` is not by itself a parity fix:
 it changes flags and can run guest date/time callbacks. A future storage envelope
 must cover or explicitly reject unsupported dependencies before live mutation.
+
+## Keyboard held-key reporting versus scancode modifiers
+
+Additional source audit at `256c2cb`; no live keyboard continuation experiment
+has been run. `src/hardware/keyboard.cpp:149-154` holds six independent left/right
+Ctrl, Alt and Shift booleans. `SerializeKeyboard` at lines 2977-2997 saves
+`keyb.key_pressed` but none of those six booleans. Its inherited POD restore does
+not replay the key handlers. `KEYBOARD_IsKeyPressed` at line 1940 reads only the
+saved array; agent `GetInputState` (`src/agent/debugger/debugger_adapter.cpp:632-647`)
+uses that accessor. A correct-looking held-key response alone therefore cannot
+prove the scancode generator's modifier state was restored.
+
+The omitted flags have concrete consumers in scan-set 1: `KBD_pause` at lines
+1789-1803 emits `E1 1D 45 E1 9D C5` without Ctrl, versus `E0 46 E0 C6` with
+exactly one Ctrl held. PrintScreen at lines 1812-1825 separately branches on
+Alt/Ctrl/Shift. `KEYBOARD_AddKey` at lines 1911-1937 first updates the array and
+then dispatches to scan-set 1 when controller translation is enabled (or scan
+set 1 is selected); the modifier handlers update the separate flags.
+
+Proposed native serializer probe (unrun): construct independently isolated,
+identical translated scan-set 1 keyboard fixtures, with the output buffer,
+pending key/8042 response, auxiliary state, scan-set selection, command state,
+and repeat timing explicitly normalized. Press left Ctrl through
+`KEYBOARD_AddKey` and drain its make byte before saving the keyboard payload.
+In one fixture, press Pause uninterrupted and inspect the resulting scancode
+bytes through a native queue seam or port 0x60. In the other, release Ctrl and
+drain its break byte, then load the saved payload and press Pause; inspect the
+same bytes. After loading, verify `key_pressed[KBD_leftctrl]` is true while the
+separate Ctrl flag is false. Reject a comparison if any other unregistered
+keyboard state differs. The source predicts E1/Pause after current restore
+versus E0/Ctrl-Break uninterrupted. `GetInputState` reports held keys only;
+`ApplyKeyboardInput` does not expose the bytes. A fix needs a failing negative
+control against the prior serializer and equivalent coverage for the other
+modifier branches. This probe would establish keyboard serializer behavior,
+not yet full machine restart parity; no success is claimed here.
+
+Rechecked against pinned debugger integration `f763b7b61` on 2026-09-26:
+`SerializeKeyboard` still registers `keyb.key_pressed` but none of the six
+modifier booleans, while `KBD_pause` still reads the separate Ctrl flags.
+This remains a source-backed gap; the proposed continuation probe has not run.
