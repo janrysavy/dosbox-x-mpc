@@ -1,6 +1,6 @@
 Legacy MSVC missing direct header dependency
 Failing head:5532b3ba63feb21e6e63e4187b3987ad3c30a1d7
-CI:https://github.com/janrysavy/dosbox-x-mpc/actions/runs/35731009362/job/106756268656
+CI:https://github.com/janrysavy/dosbox-x-mcp/actions/runs/35731009362/job/106756268656
 Compiler:MSVC14.16.27023 (v141_xp)
 debug_mcp.cpp(822): error C2039: toupper is not a member of std
 Base03bca583 and failing head source are byte-identical; SHA-256:c7156b3c47517389ca47bb227ed73b71ca31160fb930c76e586341643c114f15

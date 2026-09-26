@@ -1,7 +1,5 @@
 name: Debugger configuration regression builds
 on:
-  pull_request:
-    branches: [ai-re-agent]
   workflow_dispatch:
 permissions:
   contents: read

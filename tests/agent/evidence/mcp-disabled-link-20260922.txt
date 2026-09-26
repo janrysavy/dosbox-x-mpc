@@ -1,5 +1,5 @@
 MCP disabled-transport linker regression, 2026-09-22
-Failing current-head job: https://github.com/janrysavy/dosbox-x-mpc/actions/runs/35735065553/job/106770092621
+Failing current-head job: https://github.com/janrysavy/dosbox-x-mcp/actions/runs/35735065553/job/106770092621
 Observed: undefined reference to ControlServer_StartStdio() in debug.o.
 Prior source a73a436 fallback block is byte-identical to remote base03bca583.
 Prior source SHA256: b90a26081bfa1248105d5bd9ad54bc404e76d3ecfe413665e06086ffef15a2f2
